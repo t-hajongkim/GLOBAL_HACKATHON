@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { errorMessage } from '../lib/socket.ts'
+import { emitWithAck, errorMessage } from '../lib/socket.ts'
 import { MAX_AI_QUESTION_LENGTH } from '../shared/protocol.ts'
 import type { RoomSocket } from './useRoom.ts'
 
@@ -9,6 +9,8 @@ export interface AiMessage {
   text: string
 }
 
+// LLM round-trips run well past the default emitWithAck timeout (7s), so this
+// hook passes its own, longer timeout through to the shared helper.
 const ASK_TIMEOUT_MS = 25_000
 
 // Kept private to this browser tab only (per-attendee, never broadcast or persisted).
@@ -32,16 +34,10 @@ export function useAiChat(socket: RoomSocket, connected: boolean) {
     setPending(true)
     setError(null)
     try {
-      const answer = await new Promise<string>((resolve, reject) => {
-        const timeout = window.setTimeout(() => {
-          reject(new Error('AI 응답이 늦어지고 있어요. 잠시 후 다시 시도해 주세요.'))
-        }, ASK_TIMEOUT_MS)
-        socket.emit('ai:ask', { question: clipped }, (result) => {
-          window.clearTimeout(timeout)
-          if (result.ok) resolve(result.data.answer)
-          else reject(new Error(result.error))
-        })
-      })
+      const { answer } = await emitWithAck<{ answer: string }>(
+        (ack) => socket.emit('ai:ask', { question: clipped }, ack),
+        ASK_TIMEOUT_MS,
+      )
       setMessages((previous) => [...previous, { id: nextId(), role: 'assistant', text: answer }])
       return true
     } catch (askError) {

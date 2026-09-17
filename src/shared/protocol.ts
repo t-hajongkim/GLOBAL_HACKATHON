@@ -56,8 +56,6 @@ export interface RoomSnapshot {
   participants: Participant[]
   questions: Question[]
   presentation: Presentation
-  /** Host-provided background material the AI assistant answers questions from. */
-  context: string
 }
 
 export interface Reaction {

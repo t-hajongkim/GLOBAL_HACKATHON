@@ -14,7 +14,7 @@ import {
   SLIDE_COUNT,
   isLivePresentation,
 } from '../src/shared/protocol.js'
-import { AiConfigError, answerQuestion } from './ai.js'
+import { AiConfigError, AiRequestError, answerQuestion } from './ai.js'
 import type {
   Acknowledgement,
   ClientToServerEvents,
@@ -45,6 +45,11 @@ type MeetingSocket = Socket<
 >
 type Room = Omit<RoomSnapshot, 'participants'> & {
   participants: Map<string, Participant>
+  // Host-provided background material the AI assistant answers questions from.
+  // Server-side only: intentionally never included in RoomSnapshot/room:state,
+  // so it isn't broadcast to every attendee's client (only room:context writes
+  // it and ai:ask reads it, both scoped through the current room lookup below).
+  context: string
 }
 type ClientEvent = keyof ClientToServerEvents
 
@@ -52,6 +57,10 @@ class RoomError extends Error {}
 
 const text = (maximum: number) =>
   z.string().trim().min(1).refine((value) => Array.from(value).length <= maximum)
+// Like `text`, but allows an empty (or whitespace-only, trimmed to empty) value
+// so the host can clear previously-shared context.
+const optionalText = (maximum: number) =>
+  z.string().trim().refine((value) => Array.from(value).length <= maximum)
 const profileSchema = z.object({ name: text(20), avatar: z.enum(AVATARS) }).strict()
 const joinSchema = profileSchema.extend({
   roomId: z.string().regex(/^[a-zA-Z0-9_-]{3,64}$/),
@@ -139,7 +148,6 @@ function snapshot(room: Room): RoomSnapshot {
     participants: Array.from(room.participants.values(), (participant) => ({ ...participant })),
     questions: room.questions.map((question) => ({ ...question, votes: [...question.votes] })),
     presentation: { ...room.presentation },
-    context: room.context,
   }
 }
 
@@ -447,11 +455,13 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
     })
 
     // Integration seam: the host-facing "start page" (built separately) will call this
-    // to feed background material/resources to the room's AI assistant.
-    on('room:context', z.object({ context: z.string().max(MAX_CONTEXT_LENGTH) }).strict(), ({ context }) => {
+    // to feed background material/resources to the room's AI assistant. `context` is
+    // intentionally never part of RoomSnapshot/room:state — it stays server-side and is
+    // only ever read back by the ai:ask handler below, so it is never broadcast to
+    // attendees' clients.
+    on('room:context', z.object({ context: optionalText(MAX_CONTEXT_LENGTH) }).strict(), ({ context }) => {
       const { room } = asHost()
       room.context = context
-      broadcast(room)
     })
 
     on('ai:ask', z.object({ question: text(MAX_AI_QUESTION_LENGTH) }).strict(), async ({ question }) => {
@@ -460,7 +470,13 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
         const answer = await answerQuestion(room.context, question)
         return { answer }
       } catch (error) {
-        throw new RoomError(error instanceof AiConfigError || error instanceof Error ? error.message : 'AI 도우미가 답변하지 못했습니다.')
+        // Only forward the curated, user-safe Korean messages from ai.ts. Any other
+        // (unexpected) error is rethrown so the on() wrapper above logs it and returns
+        // its own generic fallback, instead of leaking an arbitrary error's message.
+        if (error instanceof AiConfigError || error instanceof AiRequestError) {
+          throw new RoomError(error.message)
+        }
+        throw error
       }
     })
 

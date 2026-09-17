@@ -1,10 +1,10 @@
 import type { Ack } from '../shared/protocol.ts'
 
-export function emitWithAck<T>(emit: (ack: Ack<T>) => void): Promise<T> {
+export function emitWithAck<T>(emit: (ack: Ack<T>) => void, timeoutMs = 7_000): Promise<T> {
   return new Promise((resolve, reject) => {
     const timeout = window.setTimeout(() => {
       reject(new Error('응답이 늦어지고 있어요. 연결 상태를 확인하고 다시 시도해 주세요.'))
-    }, 7_000)
+    }, timeoutMs)
 
     emit((result) => {
       window.clearTimeout(timeout)
