@@ -1,0 +1,38 @@
+{
+  "name": "pixel-meet",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently --kill-others -n room,web \"tsx watch server\\index.ts\" \"vite --host 127.0.0.1\"",
+    "dev:lan": "concurrently --kill-others -n room,web \"tsx watch server\\index.ts\" \"vite --host 0.0.0.0\"",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "test": "tsx --test server\\room.test.ts",
+    "test:e2e": "playwright test",
+    "start": "node dist-server\\server\\index.js",
+    "preview": "vite preview --port 4317"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^9.2.1",
+    "oxlint": "^1.81.0",
+    "tsx": "^4.20.6",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  }
+}

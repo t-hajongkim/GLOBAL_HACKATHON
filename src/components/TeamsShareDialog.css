@@ -1,0 +1,27 @@
+.teams-share-button { background: #eeedf8; border-color: #d9d5ec; color: #55528d; }
+.teams-share-button:hover { background: #e5e2f5; border-color: #bcb4d9; }
+.teams-share-dialog { width: min(540px, calc(100% - 32px)); }
+.teams-share-dialog .dialog-description { color: #65745e; }
+.teams-share-steps { display: grid; gap: 12px; margin: 0 0 20px; padding: 0; list-style: none; }
+.teams-share-steps li { display: flex; gap: 10px; align-items: flex-start; }
+.teams-share-steps li > span { display: grid; place-items: center; flex-shrink: 0; width: 23px; height: 23px; border-radius: 6px; background: #eeedf8; color: #55528d; font-size: 12px; font-weight: 700; }
+.teams-share-steps strong { color: #364e3a; font-size: 12px; }
+.teams-share-steps p { margin: 3px 0 0; color: #727e69; font-size: 11px; line-height: 1.6; }
+.teams-capture-preview { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #d6dfcd; border-radius: 10px; background: #24362d; }
+.teams-capture-preview video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.teams-preview-placeholder { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; height: 100%; padding: 16px; color: #d8e3ce; text-align: center; font-size: 12px; }
+.teams-preview-placeholder small { color: #a7b89c; font-size: 10px; }
+.teams-preview-badge, .teams-stream-badge { position: absolute; left: 8px; top: 8px; z-index: 3; padding: 5px 8px; border-radius: 4px; background: #27233de8; color: #f2efff; font-size: 10px; }
+.teams-stream-badge { top: auto; bottom: 8px; pointer-events: none; }
+.teams-stream-badge span { margin-left: 8px; color: #c3c2d6; }
+.teams-share-facts { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; color: #697a5e; font-size: 11px; }
+.teams-share-facts span { display: inline-flex; gap: 5px; align-items: center; }
+.teams-share-note { display: flex; align-items: flex-start; gap: 6px; margin: 15px 0 0; color: #737d69; font-size: 10px; line-height: 1.8; }
+.teams-share-note svg { flex-shrink: 0; margin-top: 3px; }
+.teams-share-error { margin: 14px 0 0; padding: 10px; border: 1px solid #e6c6b8; border-radius: 6px; background: #fff0e9; color: #944e3e; font-size: 12px; line-height: 1.65; }
+.teams-share-dialog .full-width { margin-top: 12px; }
+@media (max-width: 480px) {
+  .teams-share-steps p { font-size: 10px; }
+  .teams-stream-badge { font-size: 8px; padding: 4px 6px; }
+  .teams-stream-badge span { margin-left: 4px; }
+}

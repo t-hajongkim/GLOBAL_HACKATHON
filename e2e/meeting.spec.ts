@@ -1,0 +1,106 @@
+import { expect, test } from '@playwright/test'
+
+test('demo cinema, avatar, seats and responsive layout', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.goto('/')
+  await expect(page.getByTestId('connection-status')).toHaveText('실시간 연결')
+  await expect(page.getByRole('heading', { name: '작은 아이디어, 큰 만남' })).toBeVisible()
+  await expect(page.locator('.theater-seat')).toHaveCount(24)
+  await expect(page.locator('.demo-notice')).toBeVisible()
+  await expect(page.getByTestId('my-walking-avatar')).toBeVisible()
+  await page.screenshot({ path: 'test-results\\desktop.png', fullPage: true })
+  await page.getByRole('button', { name: '이름과 캐릭터 변경' }).click()
+  await page.getByLabel('극장에서 불릴 이름').fill('별이')
+  await page.getByRole('button', { name: '라일락 몽상가' }).click()
+  await page.getByRole('button', { name: '이 모습으로 참여하기' }).click()
+  await expect(page.getByTestId('my-walking-avatar')).toContainText('별이')
+  const freeSeat = page.locator('.theater-seat.empty').first()
+  await freeSeat.click()
+  await expect(page.locator('.my-seat')).toContainText('별이')
+  await page.keyboard.down('d')
+  await expect(page.getByTestId('my-walking-avatar')).toBeVisible()
+  await page.keyboard.up('d')
+  await page.getByRole('button', { name: '화면만 보기' }).click()
+  await expect(page.locator('.theater-scene')).toHaveClass(/is-focused/)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.theater-scene')).not.toHaveClass(/is-focused/)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: 'test-results\\mobile.png', fullPage: true })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await expect(page.getByRole('button', { name: '하트 리액션' })).toBeVisible()
+  await page.getByRole('button', { name: '하트 리액션' }).click()
+  await expect(page.getByTestId('floating-reaction')).toContainText('❤️')
+  expect(errors).toEqual([])
+})
+
+test('two browsers share movement, questions, reactions, slides and screen video', async ({ page, browser }) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', {
+      value: async () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = 640
+        canvas.height = 360
+        const context = canvas.getContext('2d')
+        if (!context) throw new Error('Canvas context unavailable')
+        const draw = () => {
+          context.fillStyle = '#517351'
+          context.fillRect(0, 0, 640, 360)
+          context.fillStyle = '#f7ecd1'
+          context.font = '36px sans-serif'
+          context.fillText(`Pixel Meet ${Date.now()}`, 35, 180)
+        }
+        draw()
+        const timer = setInterval(draw, 100)
+        const stream = canvas.captureStream(10)
+        stream.getVideoTracks()[0].addEventListener('ended', () => clearInterval(timer))
+        return stream
+      },
+    })
+  })
+  const url = `/?room=e2e-${Date.now()}`
+  await page.goto(url)
+  await expect(page.getByTestId('connection-status')).toHaveText('실시간 연결')
+  const guestContext = await browser.newContext({ viewport: { width: 1440, height: 960 } })
+  const guest = await guestContext.newPage()
+  guest.on('pageerror', (error) => errors.push(error.message))
+  await guest.goto(new URL(url, page.url()).href)
+  await expect(guest.getByTestId('connection-status')).toHaveText('실시간 연결')
+  await expect(page.locator('.room-capacity')).toContainText('실제 참여 2명')
+  await guest.getByTestId('seat-5').click()
+  await expect(page.getByTestId('seat-5')).toHaveAttribute('data-occupied', 'true')
+  await guest.getByRole('button', { name: '자리에서 일어나 둘러보기' }).click()
+  await expect(page.getByTestId('seat-5')).toHaveAttribute('data-occupied', 'false')
+  await expect(page.getByTestId('walking-avatar')).toBeVisible()
+  const before = await guest.getByTestId('my-walking-avatar').evaluate((element) => (element as HTMLElement).style.left)
+  await guest.keyboard.down('d')
+  await expect.poll(() => guest.getByTestId('my-walking-avatar').evaluate((element) => (element as HTMLElement).style.left)).not.toBe(before)
+  await guest.keyboard.up('d')
+  await guest.getByLabel('발표자에게 질문하기').fill('우리 팀도 이 공간에서 만날 수 있나요?')
+  await guest.getByRole('button', { name: '질문 보내기' }).click()
+  const card = page.getByTestId('question-card').filter({ hasText: '우리 팀도 이 공간에서 만날 수 있나요?' })
+  await expect(card).toBeVisible()
+  await card.getByRole('button', { name: /질문에 공감/ }).click()
+  await expect(guest.locator('.vote-button')).toContainText('1')
+  await card.getByRole('button', { name: /답변 완료로 표시/ }).click()
+  await expect(guest.locator('.answered-label')).toHaveText('답변 완료')
+  await guest.getByRole('button', { name: '손들기', exact: true }).click()
+  await expect(page.locator('.hand-queue')).toContainText('손들었어요')
+  await guest.getByRole('button', { name: '박수 리액션' }).click()
+  await expect(page.getByTestId('floating-reaction')).toContainText('👏')
+  await page.getByRole('button', { name: '다음 슬라이드' }).click()
+  await expect(guest.getByTestId('slide-counter')).toHaveText('2 / 4')
+  await page.getByRole('button', { name: '화면 공유', exact: true }).click()
+  await expect(guest.getByTestId('shared-video')).toBeVisible()
+  await expect.poll(() => guest.getByTestId('shared-video').evaluate((video) =>
+    (video as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2)
+  await page.getByRole('button', { name: '공유 중지', exact: true }).click()
+  await expect(guest.getByTestId('presentation-slide')).toBeVisible()
+  await page.getByRole('button', { name: '미팅룸 나가기' }).click()
+  await page.getByRole('button', { name: '나가기', exact: true }).click()
+  await expect(guest.getByRole('button', { name: '화면 공유', exact: true })).toBeVisible()
+  expect(errors).toEqual([])
+  await guestContext.close()
+})
