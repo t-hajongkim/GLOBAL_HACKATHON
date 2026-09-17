@@ -20,9 +20,10 @@ export interface AiConfig {
 }
 
 export function loadAiConfig(env: NodeJS.ProcessEnv = process.env): AiConfig {
+  const baseUrl = (env.AI_API_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, '')
   return {
-    baseUrl: (env.AI_API_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ''),
-    apiKey: env.AI_API_KEY?.trim() || env.GITHUB_TOKEN?.trim() || undefined,
+    baseUrl,
+    apiKey: env.AI_API_KEY?.trim() || (!env.AI_API_BASE_URL ? env.GITHUB_TOKEN?.trim() : undefined) || undefined,
     model: env.AI_MODEL?.trim() || DEFAULT_MODEL,
   }
 }
