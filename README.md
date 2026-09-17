@@ -19,10 +19,13 @@ npm run dev
 Open **http://localhost:4317**. Vite proxies realtime traffic to the room
 server on `127.0.0.1:4318`. Ctrl+C stops both processes.
 
-The initial view is explicitly a **demo** with example attendees/questions.
-Choose **초대하기 → 실제 미팅룸 만들기** and share the resulting link.
-Actual rooms contain no fake attendees. Every browser tab joins separately;
-the profile button changes your name and avatar.
+The initial screen asks you to choose **Host** or **Attendee**.
+Hosts name and create a new room and may select presentation materials before
+opening it. Files finish uploading before the host enters the theater.
+Attendees enter a host's invite link or room code; a missing room is never
+created by an attendee. The invite URL preselects Attendee.
+**먼저 체험해 보기** opens a clearly labeled demo with example attendees.
+Actual rooms contain no simulated participants. Every browser tab joins separately.
 
 | Action | Control |
 | --- | --- |
@@ -36,9 +39,45 @@ the profile button changes your name and avatar.
 | Present | Presenter-only slide arrows and 화면 공유 |
 | Stream a Teams meeting window | Teams 창 공유 → select window → confirm preview |
 
-The first person is the presenter. Leaving transfers the role to the next
+The room creator is the Host/presenter. Leaving transfers the role to the next
 actual participant and ends any screen share. Positions, seats, questions,
 votes, hand raising, reactions, title, and slides synchronize in real time.
+
+## Host materials and future agents
+
+Hosts can upload up to **5 files, 10 MB each** when creating a room:
+PDF, PPTX, DOCX, UTF-8 TXT/MD/CSV, PNG, and JPEG. The room's **자료** button lets
+participants download the originals. This does not convert slides, run an AI
+model, or automatically show the uploaded document on the theater screen.
+
+The agent-facing contract is defined in `src\shared\protocol.ts`:
+
+| Endpoint | Authorization | Result |
+| --- | --- | --- |
+| `POST /api/rooms/:roomId/materials?name=<URL-encoded-filename>` | Host session | Upload raw `application/octet-stream`; returns material metadata |
+| `GET /api/rooms/:roomId/materials` | Room participant session | `{ roomId, materials: RoomMaterial[] }` |
+| `GET /api/rooms/:roomId/materials/:materialId/content` | Room participant session | Original file, downloaded as attachment |
+
+`room:join` now requires `role: "host" | "attendee"` and accepts an optional
+`title` for new rooms. Its acknowledgement includes a private `accessToken`
+and the server-assigned `role`. Send `Authorization: Bearer <accessToken>` to
+the material endpoints. Tokens are not broadcast, stored in the URL, or kept
+in localStorage. They expire on disconnect/leave and cannot access other rooms.
+Choosing Host for an already occupied room does not grant host permissions.
+
+`RoomMaterial` contains `id`, `roomId`, `name`, `mimeType`, `size`, `sha256`,
+`createdAt`, `uploadedBy`, and a relative `contentUrl`. Socket `room:state`
+includes metadata only, never file bytes or access tokens. A future agent
+can join as an attendee, use its own session token, fetch materials, and
+perform its own processing. Keep that socket connected while accessing files.
+There is no public, unauthenticated file URL or document-analysis AI pipeline.
+
+Original files are stored in ignored `data\uploads`, under generated IDs, and
+deleted when the last real participant leaves. Room metadata and tokens are
+in memory: restart does not restore rooms. A forced process crash may leave
+inaccessible files in this directory; production requires an object store,
+retention/cleanup policy, authentication, and document malware scanning.
+Header validation is not a malware scanner; do not open untrusted downloads.
 
 ## Live question clustering
 

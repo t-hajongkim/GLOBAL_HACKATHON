@@ -10,6 +10,33 @@ export const MAX_QUESTION_LENGTH = 280
 export const MAX_CONTEXT_LENGTH = 20_000
 export const MAX_AI_QUESTION_LENGTH = 500
 export const DEFAULT_ROOM_TITLE = '작은 아이디어, 큰 만남'
+export const JOIN_ROLES = ['host', 'attendee'] as const
+export type JoinRole = (typeof JOIN_ROLES)[number]
+export const MAX_MATERIALS = 5
+export const MAX_MATERIAL_BYTES = 10 * 1024 * 1024
+export const MATERIAL_MIME_TYPES: Readonly<Record<string, string>> = {
+  '.pdf': 'application/pdf',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.csv': 'text/csv',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+}
+
+export interface RoomMaterial {
+  id: string
+  roomId: string
+  name: string
+  mimeType: string
+  size: number
+  sha256: string
+  createdAt: number
+  uploadedBy: string
+  contentUrl: string
+}
 // Minimum pending questions before the AI grouping view surfaces.
 export const CLUSTER_MIN_QUESTIONS = 3
 
@@ -65,8 +92,14 @@ export interface RoomSnapshot {
   hostId: string
   participants: Participant[]
   questions: Question[]
+  materials: RoomMaterial[]
   clusters: QuestionCluster[]
   presentation: Presentation
+}
+
+export interface RoomJoinResult extends RoomSnapshot {
+  accessToken: string
+  role: JoinRole
 }
 
 export interface Reaction {
@@ -81,6 +114,8 @@ export interface JoinRoom {
   name: string
   avatar: AvatarColor
   demo: boolean
+  role: JoinRole
+  title?: string
 }
 
 export interface SessionDescription {
@@ -108,7 +143,7 @@ export type Acknowledgement<T = undefined> =
 export type Ack<T = undefined> = (result: Acknowledgement<T>) => void
 
 export interface ClientToServerEvents {
-  'room:join': (payload: JoinRoom, ack: Ack<RoomSnapshot>) => void
+  'room:join': (payload: JoinRoom, ack: Ack<RoomJoinResult>) => void
   'room:leave': (ack: Ack) => void
   'room:profile': (payload: { name: string; avatar: AvatarColor }, ack: Ack) => void
   'room:seat': (payload: { seat: number }, ack: Ack) => void

@@ -4,6 +4,7 @@ test('demo cinema, avatar, seats and responsive layout', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
+  await page.getByRole('button', { name: '먼저 체험해 보기' }).click()
   await expect(page.getByTestId('connection-status')).toHaveText('실시간 연결')
   await expect(page.getByRole('heading', { name: '작은 아이디어, 큰 만남' })).toBeVisible()
   await expect(page.locator('.theater-seat')).toHaveCount(24)
@@ -60,13 +61,14 @@ test('two browsers share movement, questions, reactions, slides and screen video
       },
     })
   })
-  const url = `/?room=e2e-${Date.now()}`
-  await page.goto(url)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Host로 방 열기' }).click()
   await expect(page.getByTestId('connection-status')).toHaveText('실시간 연결')
   const guestContext = await browser.newContext({ viewport: { width: 1440, height: 960 } })
   const guest = await guestContext.newPage()
   guest.on('pageerror', (error) => errors.push(error.message))
-  await guest.goto(new URL(url, page.url()).href)
+  await guest.goto(page.url())
+  await guest.getByRole('button', { name: 'Attendee로 입장' }).click()
   await expect(guest.getByTestId('connection-status')).toHaveText('실시간 연결')
   await expect(page.locator('.room-capacity')).toContainText('실제 참여 2명')
   await guest.getByTestId('seat-5').click()

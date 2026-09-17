@@ -19,6 +19,7 @@ import type {
   Acknowledgement,
   ClientToServerEvents,
   RoomSnapshot,
+  RoomJoinResult,
   ServerToClientEvents,
 } from '../src/shared/protocol.js'
 
@@ -104,9 +105,12 @@ async function mutate(socket: Client, event: ClientEvent, ...args: unknown[]) {
 }
 
 async function join(socket: Client, roomId: string, name = '참가자', demo = false) {
-  const room = await good<RoomSnapshot>(socket, 'room:join', {
-    roomId, name, avatar: 'mint', demo,
+  const result = await good<RoomJoinResult>(socket, 'room:join', {
+    roomId, name, avatar: 'mint', demo, role: 'host',
   })
+  const { accessToken, role, ...room } = result
+  assert.equal(accessToken.length, 64)
+  assert.equal(role, room.hostId === socket.id ? 'host' : 'attendee')
   assert.deepEqual(latest(socket), room)
   return room
 }
@@ -603,8 +607,8 @@ test('demo seeds are explicit and bounded, status cannot change, and the last re
     assert.ok(question.votes.length >= 3 && question.votes.length <= 5)
     assert.ok(question.votes.every((id) => typeof id === 'string' && bots.some((bot) => bot.id === id)))
   }
-  assert.match(await bad(viewer, 'room:join', { roomId: 'demo-room', name: '실제 참가자', avatar: 'sky', demo: false }), /데모/)
-  await bad(host, 'room:join', { roomId: 'demo-room', name: '진행자', avatar: 'mint', demo: false })
+  assert.match(await bad(viewer, 'room:join', { roomId: 'demo-room', name: '실제 참가자', avatar: 'sky', demo: false, role: 'attendee' }), /데모/)
+  await bad(host, 'room:join', { roomId: 'demo-room', name: '진행자', avatar: 'mint', demo: false, role: 'host' })
   assert.equal((await join(viewer, 'demo-room', '실제 참가자', true)).participants.find((participant) => participant.id === viewer.id)?.seat, 10)
   await mutate(host, 'presentation:set', { source: 'screen' })
   await bad(host, 'rtc:signal', { to: bots[0].id, candidate: { candidate: '' } })
@@ -637,7 +641,7 @@ test('combined demo and live capacity never exceeds 25 and a failed full-room jo
   assert.equal(new Set(full.participants.filter((participant) => participant.seat !== null).map((participant) => participant.seat)).size, SEAT_COUNT)
   const outsider = await connect()
   await join(outsider, 'capacity-outside')
-  assert.match(await bad(outsider, 'room:join', { roomId: 'capacity-room', name: '늦은 참가자', avatar: 'mint', demo: true }), /가득/)
+  assert.match(await bad(outsider, 'room:join', { roomId: 'capacity-room', name: '늦은 참가자', avatar: 'mint', demo: true, role: 'attendee' }), /가득/)
   assert.equal((await mutate(outsider, 'room:title', { title: '원래 방에 남아 있어요' })).id, 'capacity-outside')
   await good(viewers[4], 'room:leave')
   const admitted = await join(outsider, 'capacity-room', '늦은 참가자', true)
@@ -696,12 +700,48 @@ test('room count is bounded and emptied rooms free capacity, including direct ro
   const [first, second, third] = await Promise.all([connect(), connect(), connect()])
   await join(first, 'limit-first')
   await join(second, 'limit-second')
-  assert.match(await bad(third, 'room:join', { roomId: 'limit-third', name: '참가자', avatar: 'mint', demo: false }), /너무 많/)
+  assert.match(await bad(third, 'room:join', { roomId: 'limit-third', name: '참가자', avatar: 'mint', demo: false, role: 'host' }), /너무 많/)
   await bad(third, 'room:title', { title: '입장 실패 후에는 권한이 없어요' })
   assert.equal((await join(first, 'limit-third')).id, 'limit-third')
   await good(second, 'room:leave')
   assert.equal((await join(third, 'limit-first')).hostId, third.id)
-  await good(second, 'room:leave')
+})
+
+test('explicit entry roles and room-scoped original materials enforce host writes and attendee reads', testOptions, async (t) => {
+  const { url, connect } = await fixture(t)
+  const [host, attendee, outsider] = await Promise.all([connect(), connect(), connect()])
+  const profile = { name: '자료 호스트', avatar: 'mint', demo: false, roomId: 'material-room' }
+  assert.match(await bad(attendee, 'room:join', { ...profile, role: 'attendee' }), /열리지/)
+  const created = await good<RoomJoinResult>(host, 'room:join', { ...profile, role: 'host', title: '자료 기반 미팅' })
+  const joined = await good<RoomJoinResult>(attendee, 'room:join', { ...profile, role: 'attendee' })
+  const other = await good<RoomJoinResult>(outsider, 'room:join', { ...profile, roomId: 'other-material-room', role: 'host' })
+  assert.equal(created.role, 'host')
+  assert.equal(joined.role, 'attendee')
+  assert.equal(created.title, '자료 기반 미팅')
+  assert.equal('accessToken' in latest(attendee), false)
+  const endpoint = `${url}/api/rooms/material-room/materials`
+  assert.equal((await fetch(endpoint)).status, 401)
+  assert.equal((await fetch(endpoint, { headers: { Authorization: `Bearer ${other.accessToken}` } })).status, 401)
+  const requestUpload = (token: string, name: string, body: string) => fetch(`${endpoint}?name=${encodeURIComponent(name)}`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' }, body,
+  })
+  assert.equal((await requestUpload(joined.accessToken, 'notes.txt', 'attendee upload')).status, 403)
+  assert.equal((await requestUpload(created.accessToken, 'bad.exe', 'bad')).status, 400)
+  assert.equal((await requestUpload(created.accessToken, 'fake.pdf', 'not a PDF')).status, 400)
+  const content = '팀원의 에이전트가 읽을 발표 자료'
+  const uploaded = await requestUpload(created.accessToken, '발표.txt', content)
+  assert.equal(uploaded.status, 201)
+  const material = await uploaded.json()
+  assert.equal(material.name, '발표.txt')
+  assert.equal(material.sha256.length, 64)
+  const listing = await fetch(endpoint, { headers: { Authorization: `Bearer ${joined.accessToken}` } })
+  assert.equal((await listing.json()).materials.length, 1)
+  const downloaded = await fetch(`${url}${material.contentUrl}`, { headers: { Authorization: `Bearer ${joined.accessToken}` } })
+  assert.equal(await downloaded.text(), content)
+  assert.equal(downloaded.headers.get('x-content-type-options'), 'nosniff')
+  assert.match(downloaded.headers.get('content-disposition') ?? '', /attachment/)
+  await good(attendee, 'room:leave')
+  assert.equal((await fetch(endpoint, { headers: { Authorization: `Bearer ${joined.accessToken}` } })).status, 401)
 })
 
 test('room:context is host-only, is never part of any broadcast room:state, and feeds the AI assistant privately', testOptions, async (t) => {

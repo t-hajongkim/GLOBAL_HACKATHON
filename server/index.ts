@@ -7,6 +7,7 @@ import type { ErrorRequestHandler } from 'express'
 import { Server } from 'socket.io'
 import { attachRoomHandlers } from './room.js'
 import type { MeetingIO } from './room.js'
+import { createMaterialsApi } from './materials.js'
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url))
 const projectDirectory = basename(dirname(moduleDirectory)) === 'dist-server'
@@ -45,6 +46,7 @@ function allowedOrigin(request: IncomingMessage): boolean {
 
 export interface MeetingServerOptions {
   maxRooms?: number
+  uploadDirectory?: string
 }
 
 export function createMeetingServer(options: MeetingServerOptions = {}) {
@@ -53,6 +55,8 @@ export function createMeetingServer(options: MeetingServerOptions = {}) {
   app.get('/api/health', (_request, response) => {
     response.json({ status: 'ok' })
   })
+  const routes = express.Router()
+  app.use('/api/rooms', routes)
   app.use('/api', (_request, response) => {
     response.status(404).json({ error: '찾을 수 없는 API입니다.' })
   })
@@ -97,7 +101,9 @@ export function createMeetingServer(options: MeetingServerOptions = {}) {
   io.engine.use((request: IncomingMessage, _response: ServerResponse, next: (error?: Error) => void) => {
     next(allowedOrigin(request) ? undefined : new Error('허용되지 않은 연결입니다.'))
   })
-  attachRoomHandlers(io, options.maxRooms)
+  const registry = attachRoomHandlers(io, options.maxRooms, (id) => materials.cleanRoom(id))
+  const materials = createMaterialsApi(registry, options.uploadDirectory ?? resolve(projectDirectory, 'data', 'uploads'))
+  routes.use(materials.router)
 
   let closing: Promise<void> | undefined
   const close = () => {
@@ -110,7 +116,7 @@ export function createMeetingServer(options: MeetingServerOptions = {}) {
       }).catch(reject)
       httpServer.closeAllConnections()
     })
-    return closing
+    return closing.then(() => materials.flush())
   }
   return { app, httpServer, io, close }
 }

@@ -5,15 +5,17 @@ import type {
   Ack,
   AvatarColor,
   ClientToServerEvents,
+  JoinRole,
   Reaction,
   ReactionEmoji,
   RoomSnapshot,
+  RoomJoinResult,
   ServerToClientEvents,
 } from '../shared/protocol.ts'
 
 export type RoomSocket = Socket<ServerToClientEvents, ClientToServerEvents>
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'failed'
-export interface RoomTarget { id: string; demo: boolean }
+export interface RoomTarget { id: string; demo: boolean; role: JoinRole; title?: string; attempt?: number }
 export interface Profile { name: string; avatar: AvatarColor }
 
 export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
@@ -22,35 +24,46 @@ export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
   )
   const [room, setRoom] = useState<RoomSnapshot | null>(null)
   const [myId, setMyId] = useState('')
+  const [accessToken, setAccessToken] = useState('')
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [error, setError] = useState<string | null>(null)
   const [reactions, setReactions] = useState<Reaction[]>([])
   const profileRef = useRef(initialProfile)
   const roomId = target?.id
   const demo = target?.demo ?? false
+  const role = target?.role ?? 'attendee'
+  const title = target?.title
+  const attempt = target?.attempt
+
+  useEffect(() => { profileRef.current = initialProfile }, [initialProfile])
 
   useEffect(() => {
     if (!roomId) {
       setRoom(null)
+      setAccessToken('')
       setStatus('disconnected')
       return
     }
 
     let active = true
     setRoom(null)
+    setAccessToken('')
     setReactions([])
     setStatus('connecting')
 
     const onConnect = async () => {
       try {
-        const joinedRoom = await emitWithAck<RoomSnapshot>((ack) =>
-          socket.emit('room:join', { roomId, demo, ...profileRef.current }, ack),
+        const joinedRoom = await emitWithAck<RoomJoinResult>((ack) =>
+          socket.emit('room:join', { roomId, demo, role, title, ...profileRef.current }, ack),
         )
         if (!active) return
         setMyId(socket.id ?? '')
-        setRoom(joinedRoom)
+        const { accessToken: token, role: actualRole, ...snapshot } = joinedRoom
+        setRoom(snapshot)
+        setAccessToken(token)
         setStatus('connected')
-        setError(null)
+        setError(role === 'host' && actualRole !== 'host'
+          ? '이미 Host가 있는 방이어서 Attendee로 입장했어요.' : null)
       } catch (joinError) {
         if (!active) return
         setStatus('failed')
@@ -65,7 +78,7 @@ export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
       setReactions((previous) => [...previous.slice(-23), reaction])
     }
     const onDisconnect = () => {
-      if (active) setStatus('disconnected')
+      if (active) { setStatus('disconnected'); setAccessToken('') }
     }
     const onConnectError = () => {
       if (active) {
@@ -92,7 +105,7 @@ export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
       socket.off('connect_error', onConnectError)
       socket.disconnect()
     }
-  }, [socket, roomId, demo])
+  }, [socket, roomId, demo, role, title, attempt])
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -138,7 +151,7 @@ export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
   }), [command, socket])
 
   return {
-    socket, room, myId, status, error, reactions, actions,
+    socket, room, myId, accessToken, status, error, reactions, actions,
     reportError: setError,
     clearError: () => setError(null),
   }

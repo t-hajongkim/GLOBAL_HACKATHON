@@ -1,46 +1,52 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AppWindow, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronRight, CircleHelp,
-  Clock3, DoorOpen, Footprints, Hand, LogOut, MessageCircle, MonitorUp,
+  Clock3, FileText, Footprints, Hand, LogOut, MessageCircle, MonitorUp,
   Pencil, Plus, Settings2, Smile, Sofa, Sparkles, Users, X,
 } from 'lucide-react'
 import { AiChatWidget } from './components/AiChatWidget.tsx'
 import { Dialog } from './components/Dialog.tsx'
-import { PixelAvatar, PixelLogo, PixelSprout } from './components/PixelArt.tsx'
+import { PixelAvatar, PixelLogo } from './components/PixelArt.tsx'
 import { QuestionPanel, type PanelTab } from './components/QuestionPanel.tsx'
 import { HelpDialog, InviteDialog, ProfileDialog, TitleDialog } from './components/RoomDialogs.tsx'
 import { Theater } from './components/Theater.tsx'
 import { TeamsShareDialog } from './components/TeamsShareDialog.tsx'
+import { JoinScreen, type JoinDraft } from './components/JoinScreen.tsx'
+import { MaterialsDialog } from './components/MaterialsDialog.tsx'
 import { useRoom, type Profile, type RoomTarget } from './hooks/useRoom.ts'
 import { useScreenShare } from './hooks/useScreenShare.ts'
-import { newRoomId } from './lib/socket.ts'
+import { errorMessage, newRoomId } from './lib/socket.ts'
+import { uploadMaterial } from './lib/materials.ts'
 import { DEFAULT_ROOM_TITLE, REACTIONS, isLivePresentation, type ReactionEmoji } from './shared/protocol.ts'
 import './App.css'
 
-type Modal = 'profile' | 'invite' | 'new' | 'help' | 'title' | 'leave' | 'teams' | null
+type Modal = 'profile' | 'invite' | 'new' | 'help' | 'title' | 'leave' | 'teams' | 'materials' | null
 const reactionNames: Record<ReactionEmoji, string> = {
   '👏': '박수', '❤️': '하트', '👍': '좋아요', '😂': '웃음', '🎉': '축하', '💡': '아이디어',
 }
 
-function initialTarget(): RoomTarget {
-  const requested = new URLSearchParams(window.location.search).get('room')
-  return requested ? { id: requested, demo: false } : { id: `demo-${newRoomId()}`, demo: true }
-}
-
 function App() {
-  const [target, setTarget] = useState<RoomTarget | null>(initialTarget)
+  const [target, setTarget] = useState<RoomTarget | null>(null)
+  const [entryOpen, setEntryOpen] = useState(true)
+  const [entryRoomId, setEntryRoomId] = useState(() => new URLSearchParams(window.location.search).get('room') ?? '')
+  const [joining, setJoining] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState('방에 연결하는 중…')
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadRetry, setUploadRetry] = useState(0)
+  const pendingFiles = useRef<File[]>([])
+  const uploadedCount = useRef(0)
+  const uploadRunning = useRef(false)
   const [profile, setProfile] = useState<Profile>({ name: '민트', avatar: 'mint' })
-  const { socket, room, myId, status, error, reactions, actions, reportError, clearError } = useRoom(target, profile)
+  const { socket, room, myId, accessToken, status, error, reactions, actions, reportError, clearError } = useRoom(target, profile)
   const screen = useScreenShare(socket, room, myId, reportError)
   const [modal, setModal] = useState<Modal>(null)
   const [tab, setTab] = useState<PanelTab>('questions')
   const [focused, setFocused] = useState(false)
   const [reactionOpen, setReactionOpen] = useState(false)
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Date.now())
   const [toast, setToast] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const roomRef = useRef(room)
-  const lastTarget = useRef(target)
   const me = room?.participants.find((participant) => participant.id === myId)
   const connected = status === 'connected'
   const isHost = room?.hostId === myId
@@ -56,10 +62,47 @@ function App() {
   }, [])
   useEffect(() => () => window.clearTimeout(toastTimer.current), [])
   useEffect(() => {
-    const onPopState = () => setTarget(initialTarget())
+    const onPopState = () => {
+      setTarget(null)
+      setJoining(false)
+      setEntryRoomId(new URLSearchParams(window.location.search).get('room') ?? '')
+      setEntryOpen(true)
+    }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
+
+  useEffect(() => {
+    if (entryOpen && status === 'failed') setJoining(false)
+  }, [entryOpen, status])
+
+  useEffect(() => {
+    if (!entryOpen || !target || status !== 'connected' || !room || room.id !== target.id
+      || !accessToken || uploadRunning.current || uploadError) return
+    uploadRunning.current = true
+    const id = room.id
+    const files = pendingFiles.current
+    const finish = async () => {
+      try {
+        if (files.length && room.hostId !== myId) throw new Error('Host만 자료를 올릴 수 있어요. 새 방으로 다시 시작해 주세요.')
+        while (uploadedCount.current < files.length) {
+          const file = files[uploadedCount.current]
+          setUploadProgress(`자료 업로드 ${uploadedCount.current + 1}/${files.length} · ${file.name}`)
+          await uploadMaterial(id, accessToken, file)
+          uploadedCount.current += 1
+        }
+        setJoining(false)
+        setEntryOpen(false)
+        window.history.replaceState({}, '', target.demo ? window.location.pathname : `?room=${id}`)
+      } catch (failure) {
+        setJoining(false)
+        setUploadError(errorMessage(failure))
+      } finally {
+        uploadRunning.current = false
+      }
+    }
+    void finish()
+  }, [entryOpen, target, status, room, myId, accessToken, uploadRetry, uploadError])
 
   const notify = useCallback((message: string) => {
     window.clearTimeout(toastTimer.current)
@@ -144,37 +187,51 @@ function App() {
   }, [modal, focused, connected, actions, socket, openQuestions, react, move])
 
   const createRoom = () => {
-    const next = { id: newRoomId(), demo: false }
-    window.history.pushState({}, '', `?room=${next.id}`)
-    setTarget(next)
-    lastTarget.current = next
+    setTarget(null)
+    setEntryRoomId('')
+    setJoining(false)
+    setUploadError(null)
+    setEntryOpen(true)
     setFocused(false)
-    setModal('invite')
+    setModal(null)
+    window.history.pushState({}, '', window.location.pathname)
   }
 
   const leaveRoom = () => {
-    lastTarget.current = target
-    setTarget(null)
-    setModal(null)
-    setFocused(false)
-    window.history.pushState({}, '', window.location.pathname)
+    createRoom()
   }
   const elapsed = Math.max(0, Math.floor((now - (room?.createdAt ?? now)) / 1_000))
   const timer = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`
   const roomUrl = `${window.location.origin}${window.location.pathname}?room=${target?.id ?? ''}`
 
-  if (!target) return (
-    <main className="exit-page"><div className="exit-card"><PixelLogo /><PixelSprout />
-      <span className="room-tag">SEE YOU IN THE NEXT STORY</span>
-      <h1>함께해서 더 좋은 시간이었어요.</h1><p>작은 만남이 오래 남는 이야기가 되기를.</p>
-      <button className="primary-button" onClick={() => {
-        const next = lastTarget.current ?? initialTarget()
-        setTarget(next)
-        if (!next.demo) window.history.pushState({}, '', `?room=${next.id}`)
-      }}><DoorOpen size={17} /> 극장에 다시 입장하기</button>
-      <button className="secondary-button" onClick={createRoom}><Plus size={16} /> 새로운 미팅룸 만들기</button>
-    </div></main>
-  )
+  const enter = (draft: JoinDraft) => {
+    clearError()
+    setUploadError(null)
+    setJoining(true)
+    setUploadProgress('방에 연결하는 중…')
+    pendingFiles.current = draft.files
+    uploadedCount.current = 0
+    setProfile({ ...profile, name: draft.name })
+    setTarget({
+      id: draft.role === 'host' ? newRoomId() : draft.roomId,
+      role: draft.role, demo: false, title: draft.role === 'host' ? draft.title : undefined,
+      attempt: Date.now(),
+    })
+  }
+
+  if (entryOpen || !target) return <JoinScreen key={entryRoomId} profile={profile} initialRoomId={entryRoomId}
+    busy={joining} progress={uploadProgress} error={uploadError ?? error}
+    canRetryUpload={Boolean(uploadError && connected)}
+    onRetryUpload={() => { setUploadError(null); setJoining(true); setUploadRetry((value) => value + 1) }}
+    onJoin={enter} onDemo={() => {
+      clearError()
+      setUploadError(null)
+      pendingFiles.current = []
+      uploadedCount.current = 0
+      setJoining(true)
+      setUploadProgress('체험 극장 준비 중…')
+      setTarget({ id: `demo-${newRoomId()}`, demo: true, role: 'host' })
+    }} />
 
   return (
     <div className="app-shell">
@@ -215,6 +272,8 @@ function App() {
             <div className="room-heading-actions">
               <div className={`connection-pill ${connected ? 'connected' : 'disconnected'}`} data-testid="connection-status"><span />{connected ? '실시간 연결' : status === 'failed' ? '입장 실패' : '연결 중'}</div>
               <span className="elapsed-time"><Clock3 size={13} />{timer}</span>
+              <span className="participant-role-badge">{isHost ? 'Host' : 'Attendee'}</span>
+              <button className="invite-button" onClick={() => setModal('materials')}><FileText size={15} /> 자료 {room?.materials.length ?? 0}</button>
               <button className="invite-button" onClick={() => setModal('invite')}><Users size={16} /> 초대하기 <Plus size={15} /></button>
             </div>
           </div>
@@ -284,6 +343,7 @@ function App() {
       {(modal === 'invite' || modal === 'new') && <InviteDialog isDemo={isDemo || modal === 'new'} roomUrl={roomUrl}
         onCreate={createRoom} onClose={() => setModal(null)} onError={reportError} />}
       {modal === 'help' && <HelpDialog onClose={() => setModal(null)} />}
+      {modal === 'materials' && room && <MaterialsDialog materials={room.materials} accessToken={accessToken} onClose={() => setModal(null)} />}
       {modal === 'teams' && room && <TeamsShareDialog key={room.id}
         canShare={connected && isHost}
         onStart={(stream) => screen.shareTeams(stream, room.id)} onClose={() => setModal(null)} />}
