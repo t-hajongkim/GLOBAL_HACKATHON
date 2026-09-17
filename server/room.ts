@@ -4,6 +4,7 @@ import type { Server, Socket } from 'socket.io'
 import { z } from 'zod'
 import {
   AVATARS,
+  CLUSTER_MIN_QUESTIONS,
   DEFAULT_ROOM_TITLE,
   MAX_QUESTION_LENGTH,
   PRESENTATION_SOURCES,
@@ -19,6 +20,7 @@ import type {
   RoomSnapshot,
   ServerToClientEvents,
 } from '../src/shared/protocol.js'
+import { clusterQuestions } from './clustering.js'
 
 export const MAX_ROOMS = 200
 const MAX_PARTICIPANTS = SEAT_COUNT + 1
@@ -135,6 +137,7 @@ function snapshot(room: Room): RoomSnapshot {
     hostId: room.hostId,
     participants: Array.from(room.participants.values(), (participant) => ({ ...participant })),
     questions: room.questions.map((question) => ({ ...question, votes: [...question.votes] })),
+    clusters: room.clusters.map((cluster) => ({ ...cluster, questionIds: [...cluster.questionIds] })),
     presentation: { ...room.presentation },
   }
 }
@@ -200,6 +203,58 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
   const rooms = new Map<string, Room>()
   const broadcast = (room: Room) => io.to(channel(room.id)).emit('room:state', snapshot(room))
 
+  const clusterTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const clusterGeneration = new Map<string, number>()
+  const clusterSignatures = new Map<string, string>()
+
+  function forgetClustering(roomId: string) {
+    const timer = clusterTimers.get(roomId)
+    if (timer) clearTimeout(timer)
+    clusterTimers.delete(roomId)
+    clusterGeneration.delete(roomId)
+    clusterSignatures.delete(roomId)
+  }
+
+  function scheduleClustering(room: Room) {
+    const existing = clusterTimers.get(room.id)
+    if (existing) clearTimeout(existing)
+    clusterTimers.set(room.id, setTimeout(() => void runClustering(room), 350))
+  }
+
+  async function runClustering(room: Room) {
+    clusterTimers.delete(room.id)
+    if (rooms.get(room.id) !== room) return
+    const pending = room.questions.filter((question) => !question.answered)
+    if (pending.length < CLUSTER_MIN_QUESTIONS) {
+      clusterSignatures.delete(room.id)
+      if (room.clusters.length) {
+        room.clusters = []
+        broadcast(room)
+      }
+      return
+    }
+    const signature = pending.map((question) => `${question.id}:${question.text}`).sort().join('|')
+    // Membership unchanged (e.g. only votes moved): refresh totals without an LLM call.
+    if (signature === clusterSignatures.get(room.id) && room.clusters.length) {
+      const votesById = new Map(pending.map((question) => [question.id, question.votes.length] as const))
+      room.clusters = room.clusters.map((cluster) => ({
+        ...cluster,
+        votes: cluster.questionIds.reduce((sum, id) => sum + (votesById.get(id) ?? 0), 0),
+      }))
+      broadcast(room)
+      return
+    }
+    const generation = (clusterGeneration.get(room.id) ?? 0) + 1
+    clusterGeneration.set(room.id, generation)
+    const clusters = await clusterQuestions(
+      pending.map((question) => ({ id: question.id, text: question.text, votes: question.votes.length })),
+    )
+    if (rooms.get(room.id) !== room || clusterGeneration.get(room.id) !== generation) return
+    room.clusters = clusters
+    clusterSignatures.set(room.id, signature)
+    broadcast(room)
+  }
+
   function leave(socket: MeetingSocket) {
     const roomId = socket.data.roomId
     delete socket.data.roomId
@@ -214,6 +269,7 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
     const successor = Array.from(room.participants.values()).find((participant) => !participant.isDemo)
     if (!successor) {
       rooms.delete(roomId)
+      forgetClustering(roomId)
       return
     }
     if (room.hostId === socket.id || room.presentation.presenterId === socket.id) {
@@ -223,6 +279,7 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
       room.presentation.presenterId = successor.id
     }
     broadcast(room)
+    scheduleClustering(room)
   }
 
   io.on('connection', (socket) => {
@@ -332,6 +389,7 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
           hostId: socket.id,
           participants: new Map([[socket.id, participant]]),
           questions: [],
+          clusters: [],
           presentation: { source: 'slides', slide: 0, presenterId: socket.id },
         }
         if (payload.demo) seedDemo(room)
@@ -343,6 +401,7 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
       socket.data.roomId = room.id
       void socket.join(channel(room.id))
       broadcast(room)
+      scheduleClustering(room)
       return snapshot(room)
     })
 
@@ -407,6 +466,7 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
         isDemo: false,
       })
       broadcast(room)
+      scheduleClustering(room)
     })
 
     on('question:vote', questionIdSchema, ({ questionId }) => {
@@ -416,6 +476,7 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
         ? question.votes.filter((id) => id !== socket.id)
         : [...question.votes, socket.id]
       broadcast(room)
+      scheduleClustering(room)
     })
 
     on('question:answer', questionIdSchema, ({ questionId }) => {
@@ -423,6 +484,7 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
       const question = questionById(room, questionId)
       question.answered = !question.answered
       broadcast(room)
+      scheduleClustering(room)
     })
 
     on('presentation:set', presentationSchema, (payload) => {

@@ -8,6 +8,8 @@ export const SEAT_COUNT = 24
 export const SLIDE_COUNT = 4
 export const MAX_QUESTION_LENGTH = 280
 export const DEFAULT_ROOM_TITLE = '작은 아이디어, 큰 만남'
+// Minimum pending questions before the AI grouping view surfaces.
+export const CLUSTER_MIN_QUESTIONS = 3
 
 export interface Participant {
   id: string
@@ -32,6 +34,14 @@ export interface Question {
   isDemo: boolean
 }
 
+export interface QuestionCluster {
+  id: string
+  label: string
+  questionIds: string[]
+  votes: number
+  aiGenerated: boolean
+}
+
 export const PRESENTATION_SOURCES = ['slides', 'screen', 'teams'] as const
 export type PresentationSource = (typeof PRESENTATION_SOURCES)[number]
 
@@ -53,6 +63,7 @@ export interface RoomSnapshot {
   hostId: string
   participants: Participant[]
   questions: Question[]
+  clusters: QuestionCluster[]
   presentation: Presentation
 }
 
