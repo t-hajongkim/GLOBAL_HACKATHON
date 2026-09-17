@@ -8,7 +8,7 @@ test('Host uploads before opening and Attendee reads the same room material', as
   await page.getByLabel('발표 자료 업로드').setInputFiles({
     name: 'meeting-notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Agent input: hello team!'),
   })
-  await expect(page.getByText('meeting-notes.txt', { exact: true })).toBeVisible()
+  await expect(page.locator('.join-file-list')).toContainText('meeting-notes.txt')
   await page.getByRole('button', { name: 'Host로 방 열기' }).click()
   await expect(page.getByRole('heading', { name: '에이전트 연결 미팅' })).toBeVisible()
   await expect(page.getByTestId('connection-status')).toHaveText('실시간 연결')
