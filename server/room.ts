@@ -5,6 +5,8 @@ import { z } from 'zod'
 import {
   AVATARS,
   DEFAULT_ROOM_TITLE,
+  MAX_AI_QUESTION_LENGTH,
+  MAX_CONTEXT_LENGTH,
   MAX_QUESTION_LENGTH,
   PRESENTATION_SOURCES,
   REACTIONS,
@@ -12,6 +14,7 @@ import {
   SLIDE_COUNT,
   isLivePresentation,
 } from '../src/shared/protocol.js'
+import { AiConfigError, answerQuestion } from './ai.js'
 import type {
   Acknowledgement,
   ClientToServerEvents,
@@ -44,7 +47,6 @@ type Room = Omit<RoomSnapshot, 'participants'> & {
   participants: Map<string, Participant>
 }
 type ClientEvent = keyof ClientToServerEvents
-type Reply = Acknowledgement<RoomSnapshot | undefined>
 
 class RoomError extends Error {}
 
@@ -96,6 +98,7 @@ const ratePolicies: Partial<Record<ClientEvent, RatePolicy>> = {
   'room:reaction': { capacity: 20, perSecond: 5 },
   'room:move': { capacity: 20, perSecond: 15 },
   'question:add': { capacity: 12, perSecond: 0.5 },
+  'ai:ask': { capacity: 8, perSecond: 0.2 },
   'rtc:ready': { capacity: 12, perSecond: 2 },
   'rtc:signal': { capacity: 240, perSecond: 120 },
 }
@@ -136,6 +139,7 @@ function snapshot(room: Room): RoomSnapshot {
     participants: Array.from(room.participants.values(), (participant) => ({ ...participant })),
     questions: room.questions.map((question) => ({ ...question, votes: [...question.votes] })),
     presentation: { ...room.presentation },
+    context: room.context,
   }
 }
 
@@ -251,40 +255,42 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
       return question
     }
 
-    function on<P>(
+    function on<P, R = RoomSnapshot | undefined>(
       event: ClientEvent,
       schema: z.ZodType<P>,
-      action: (payload: P) => RoomSnapshot | void,
+      action: (payload: P) => R | Promise<R>,
       withoutPayload = false,
     ) {
       socket.on(event, (...args: unknown[]) => {
         const last = args.at(-1)
-        const acknowledgement = typeof last === 'function' ? (last as (reply: Reply) => void) : undefined
+        const acknowledgement = typeof last === 'function' ? (last as (reply: Acknowledgement<R>) => void) : undefined
         const values = acknowledgement ? args.slice(0, -1) : args
-        const reply = (result: Reply) => {
+        const reply = (result: Acknowledgement<R>) => {
           if (acknowledgement) acknowledgement(result)
           else if (!result.ok) socket.emit('room:error', result.error)
         }
-        try {
-          if (!limiter.allow(event)) {
-            throw new RoomError('요청이 너무 빠릅니다. 잠시 후 다시 시도해 주세요.')
+        void (async () => {
+          try {
+            if (!limiter.allow(event)) {
+              throw new RoomError('요청이 너무 빠릅니다. 잠시 후 다시 시도해 주세요.')
+            }
+            if (values.length !== (withoutPayload ? 0 : 1)) {
+              throw new RoomError('입력 형식이 올바르지 않습니다.')
+            }
+            const parsed = schema.safeParse(withoutPayload ? undefined : values[0])
+            if (!parsed.success) {
+              throw new RoomError('입력 형식이나 길이가 올바르지 않습니다.')
+            }
+            const data = await action(parsed.data)
+            reply({ ok: true, data })
+          } catch (error) {
+            if (!(error instanceof RoomError)) console.error(`Room event ${event} failed:`, error)
+            reply({
+              ok: false,
+              error: error instanceof RoomError ? error.message : '요청을 처리하지 못했습니다. 다시 시도해 주세요.',
+            })
           }
-          if (values.length !== (withoutPayload ? 0 : 1)) {
-            throw new RoomError('입력 형식이 올바르지 않습니다.')
-          }
-          const parsed = schema.safeParse(withoutPayload ? undefined : values[0])
-          if (!parsed.success) {
-            throw new RoomError('입력 형식이나 길이가 올바르지 않습니다.')
-          }
-          const data = action(parsed.data)
-          reply({ ok: true, data: data === undefined ? undefined : data })
-        } catch (error) {
-          if (!(error instanceof RoomError)) console.error(`Room event ${event} failed:`, error)
-          reply({
-            ok: false,
-            error: error instanceof RoomError ? error.message : '요청을 처리하지 못했습니다. 다시 시도해 주세요.',
-          })
-        }
+        })()
       })
     }
 
@@ -333,6 +339,7 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
           participants: new Map([[socket.id, participant]]),
           questions: [],
           presentation: { source: 'slides', slide: 0, presenterId: socket.id },
+          context: '',
         }
         if (payload.demo) seedDemo(room)
         rooms.set(room.id, room)
@@ -437,6 +444,24 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
       const { room } = asHost()
       room.title = title
       broadcast(room)
+    })
+
+    // Integration seam: the host-facing "start page" (built separately) will call this
+    // to feed background material/resources to the room's AI assistant.
+    on('room:context', z.object({ context: z.string().max(MAX_CONTEXT_LENGTH) }).strict(), ({ context }) => {
+      const { room } = asHost()
+      room.context = context
+      broadcast(room)
+    })
+
+    on('ai:ask', z.object({ question: text(MAX_AI_QUESTION_LENGTH) }).strict(), async ({ question }) => {
+      const { room } = current()
+      try {
+        const answer = await answerQuestion(room.context, question)
+        return { answer }
+      } catch (error) {
+        throw new RoomError(error instanceof AiConfigError || error instanceof Error ? error.message : 'AI 도우미가 답변하지 못했습니다.')
+      }
     })
 
     on('rtc:ready', z.undefined(), () => {

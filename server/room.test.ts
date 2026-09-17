@@ -685,3 +685,50 @@ test('room count is bounded and emptied rooms free capacity, including direct ro
   assert.equal((await join(third, 'limit-first')).hostId, third.id)
   await good(second, 'room:leave')
 })
+
+test('rooms start with empty AI context, only the host can set it, and it is broadcast to everyone', testOptions, async (t) => {
+  const { connect } = await fixture(t)
+  const [host, viewer] = await Promise.all([connect(), connect()])
+  const joined = await join(host, 'context-room')
+  assert.equal(joined.context, '')
+  await join(viewer, 'context-room')
+  assert.match(await bad(viewer, 'room:context', { context: '권한 없는 변경' }), /진행자/)
+  const [viewerState, room] = await Promise.all([
+    nextEvent(viewer, 'room:state', (state) => state.context === '발표 자료: 오늘의 주제는 협업입니다.'),
+    mutate(host, 'room:context', { context: '발표 자료: 오늘의 주제는 협업입니다.' }),
+  ])
+  assert.equal(room.context, '발표 자료: 오늘의 주제는 협업입니다.')
+  assert.equal(viewerState.context, '발표 자료: 오늘의 주제는 협업입니다.')
+})
+
+test('the AI assistant answers privately from the room context without broadcasting to other participants', testOptions, async (t) => {
+  const originalFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = originalFetch })
+  let capturedBody: { messages: { role: string; content: string }[] } | undefined
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    capturedBody = JSON.parse(init.body as string)
+    return new Response(JSON.stringify({ choices: [{ message: { content: '협업을 주제로 다룹니다.' } }] }), { status: 200 })
+  }) as typeof fetch
+  process.env.AI_API_KEY = 'test-key'
+  t.after(() => { delete process.env.AI_API_KEY })
+
+  const { connect } = await fixture(t)
+  const [host, viewer] = await Promise.all([connect(), connect()])
+  await join(host, 'ai-room')
+  await join(viewer, 'ai-room')
+  await mutate(host, 'room:context', { context: '오늘 발표 주제는 협업입니다.' })
+
+  const noBroadcast = new Promise<string>((resolve) => {
+    const onState = () => resolve('broadcast')
+    host.once('room:state', onState)
+    setTimeout(() => { host.off('room:state', onState); resolve('timeout') }, 300)
+  })
+  const reply = await good<{ answer: string }>(viewer, 'ai:ask', { question: '오늘 주제가 뭐예요?' })
+  assert.equal(reply.answer, '협업을 주제로 다룹니다.')
+  assert.equal(await noBroadcast, 'timeout')
+  assert.match(capturedBody?.messages[0].content ?? '', /오늘 발표 주제는 협업입니다\./)
+  assert.deepEqual(capturedBody?.messages[1], { role: 'user', content: '오늘 주제가 뭐예요?' })
+
+  await bad(viewer, 'ai:ask', { question: '' })
+  await bad(viewer, 'ai:ask', { question: '💡'.repeat(501) })
+})

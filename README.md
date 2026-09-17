@@ -102,6 +102,28 @@ deletes the room's questions and other state. Capacity is one presenter plus
 24 seats. Anyone with the room URL can join: this is a small-group prototype,
 not an authenticated enterprise meeting service.
 
+## AI Q&A assistant
+
+Attendees can privately ask a chatbot questions during the session via a
+floating widget. It answers only from whatever background context the host
+has shared with the room (set via the `room:context` event; the host-facing
+UI for authoring that context is a separate effort). Each attendee's chat is
+private to their own browser tab and is not persisted or broadcast.
+
+The server calls an OpenAI-compatible chat-completions endpoint, configured
+via environment variables:
+
+- `AI_API_KEY` — bearer token for the LLM provider (falls back to `GITHUB_TOKEN`
+  if unset; a `models:read`-scoped token works with the default GitHub Models
+  endpoint below).
+- `AI_API_BASE_URL` — defaults to `https://models.github.ai/inference`. Point
+  this at any OpenAI-compatible endpoint, including Copilot's, if you have
+  access to one.
+- `AI_MODEL` — defaults to `openai/gpt-4o-mini`.
+
+Without a configured key, the widget still opens but returns a clear
+"not configured yet" error instead of an answer.
+
 ## Checks
 
 ```powershell
