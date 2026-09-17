@@ -79,7 +79,8 @@ export async function answerQuestion(context: string, question: string, config: 
     })
     if (!response.ok) {
       const detail = await response.text().catch(() => '')
-      throw new AiRequestError(`AI 서비스 호출에 실패했습니다 (${response.status}). ${detail.slice(0, 200)}`)
+      console.error('AI service request failed:', response.status, detail.slice(0, 500))
+      throw new AiRequestError(`AI 서비스 호출에 실패했습니다 (${response.status}). 잠시 후 다시 시도해 주세요.`)
     }
     const data = (await response.json()) as ChatCompletionResponse
     const answer = data.choices?.[0]?.message?.content?.trim()
