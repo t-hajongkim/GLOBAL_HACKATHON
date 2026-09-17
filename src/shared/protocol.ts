@@ -35,6 +35,8 @@ export interface RoomMaterial {
   uploadedBy: string
   contentUrl: string
 }
+// Minimum pending questions before the AI grouping view surfaces.
+export const CLUSTER_MIN_QUESTIONS = 3
 
 export interface Participant {
   id: string
@@ -59,6 +61,14 @@ export interface Question {
   isDemo: boolean
 }
 
+export interface QuestionCluster {
+  id: string
+  label: string
+  questionIds: string[]
+  votes: number
+  aiGenerated: boolean
+}
+
 export const PRESENTATION_SOURCES = ['slides', 'screen', 'teams'] as const
 export type PresentationSource = (typeof PRESENTATION_SOURCES)[number]
 
@@ -81,6 +91,7 @@ export interface RoomSnapshot {
   participants: Participant[]
   questions: Question[]
   materials: RoomMaterial[]
+  clusters: QuestionCluster[]
   presentation: Presentation
 }
 
