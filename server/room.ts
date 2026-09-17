@@ -1,10 +1,12 @@
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import type { Server, Socket } from 'socket.io'
 import { z } from 'zod'
 import {
   AVATARS,
   DEFAULT_ROOM_TITLE,
+  JOIN_ROLES,
+  MAX_MATERIALS,
   MAX_QUESTION_LENGTH,
   PRESENTATION_SOURCES,
   REACTIONS,
@@ -16,6 +18,8 @@ import type {
   Acknowledgement,
   ClientToServerEvents,
   Participant,
+  RoomJoinResult,
+  RoomMaterial,
   RoomSnapshot,
   ServerToClientEvents,
 } from '../src/shared/protocol.js'
@@ -26,6 +30,7 @@ const MAX_QUESTIONS = 100
 
 interface SocketData {
   roomId?: string
+  accessToken?: string
 }
 
 export type MeetingIO = Server<
@@ -44,7 +49,7 @@ type Room = Omit<RoomSnapshot, 'participants'> & {
   participants: Map<string, Participant>
 }
 type ClientEvent = keyof ClientToServerEvents
-type Reply = Acknowledgement<RoomSnapshot | undefined>
+type Reply = Acknowledgement<RoomJoinResult | undefined>
 
 class RoomError extends Error {}
 
@@ -54,6 +59,8 @@ const profileSchema = z.object({ name: text(20), avatar: z.enum(AVATARS) }).stri
 const joinSchema = profileSchema.extend({
   roomId: z.string().regex(/^[a-zA-Z0-9_-]{3,64}$/),
   demo: z.boolean(),
+  role: z.enum(JOIN_ROLES),
+  title: text(60).optional(),
 })
 const questionIdSchema = z.object({ questionId: z.string().min(1).max(128) }).strict()
 const presentationSchema = z
@@ -135,6 +142,7 @@ function snapshot(room: Room): RoomSnapshot {
     hostId: room.hostId,
     participants: Array.from(room.participants.values(), (participant) => ({ ...participant })),
     questions: room.questions.map((question) => ({ ...question, votes: [...question.votes] })),
+    materials: room.materials.map((material) => ({ ...material })),
     presentation: { ...room.presentation },
   }
 }
@@ -193,7 +201,11 @@ function updateProfile(room: Room, participant: Participant, profile: z.infer<ty
   }
 }
 
-export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
+export function attachRoomHandlers(
+  io: MeetingIO,
+  maxRooms = MAX_ROOMS,
+  onRoomClosed?: (roomId: string) => void,
+) {
   if (!Number.isInteger(maxRooms) || maxRooms < 1 || maxRooms > MAX_ROOMS) {
     throw new RangeError(`maxRooms must be an integer between 1 and ${MAX_ROOMS}`)
   }
@@ -203,6 +215,7 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
   function leave(socket: MeetingSocket) {
     const roomId = socket.data.roomId
     delete socket.data.roomId
+    delete socket.data.accessToken
     if (!roomId) return
     void socket.leave(channel(roomId))
     const room = rooms.get(roomId)
@@ -214,6 +227,7 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
     const successor = Array.from(room.participants.values()).find((participant) => !participant.isDemo)
     if (!successor) {
       rooms.delete(roomId)
+      onRoomClosed?.(roomId)
       return
     }
     if (room.hostId === socket.id || room.presentation.presenterId === socket.id) {
@@ -254,7 +268,7 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
     function on<P>(
       event: ClientEvent,
       schema: z.ZodType<P>,
-      action: (payload: P) => RoomSnapshot | void,
+      action: (payload: P) => RoomJoinResult | void,
       withoutPayload = false,
     ) {
       socket.on(event, (...args: unknown[]) => {
@@ -290,6 +304,9 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
 
     on('room:join', joinSchema, (payload) => {
       let room = rooms.get(payload.roomId)
+      if (!room && payload.role !== 'host') {
+        throw new RoomError('아직 열리지 않았거나 종료된 방이에요. Host에게 새 초대 링크를 요청해 주세요.')
+      }
       const previous = socket.data.roomId ? rooms.get(socket.data.roomId) : undefined
       if (room && room.isDemo !== payload.demo) {
         throw new RoomError('회의실의 데모 설정이 일치하지 않습니다.')
@@ -298,7 +315,11 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
       if (room && previous === room && existing && !existing.isDemo) {
         updateProfile(room, existing, payload)
         broadcast(room)
-        return snapshot(room)
+        return {
+          ...snapshot(room),
+          accessToken: socket.data.accessToken ??= randomBytes(32).toString('hex'),
+          role: room.hostId === socket.id ? 'host' as const : 'attendee' as const,
+        }
       }
       const seat = room ? freeSeat(room) : null
       if (room && (room.participants.size >= MAX_PARTICIPANTS || seat === undefined)) {
@@ -326,12 +347,13 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
       if (!room) {
         room = {
           id: payload.roomId,
-          title: DEFAULT_ROOM_TITLE,
+          title: payload.title ?? DEFAULT_ROOM_TITLE,
           isDemo: payload.demo,
           createdAt: participant.joinedAt,
           hostId: socket.id,
           participants: new Map([[socket.id, participant]]),
           questions: [],
+          materials: [],
           presentation: { source: 'slides', slide: 0, presenterId: socket.id },
         }
         if (payload.demo) seedDemo(room)
@@ -341,9 +363,14 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
         updateProfile(room, participant, payload)
       }
       socket.data.roomId = room.id
+      socket.data.accessToken = randomBytes(32).toString('hex')
       void socket.join(channel(room.id))
       broadcast(room)
-      return snapshot(room)
+      return {
+        ...snapshot(room),
+        accessToken: socket.data.accessToken,
+        role: room.hostId === socket.id ? 'host' as const : 'attendee' as const,
+      }
     })
 
     on('room:leave', z.undefined(), () => leave(socket), true)
@@ -477,4 +504,27 @@ export function attachRoomHandlers(io: MeetingIO, maxRooms = MAX_ROOMS) {
       limiter.clear()
     })
   })
+
+  function access(roomId: string, token: string) {
+    if (!token) return undefined
+    const room = rooms.get(roomId)
+    const socket = Array.from(io.sockets.sockets.values()).find((connection) =>
+      connection.data.roomId === roomId && connection.data.accessToken === token)
+    if (!room || !socket || !room.participants.has(socket.id)) return undefined
+    return { room: snapshot(room), participantId: socket.id, isHost: room.hostId === socket.id }
+  }
+
+  return {
+    access,
+    addMaterial(roomId: string, token: string, material: RoomMaterial) {
+      const permitted = access(roomId, token)
+      const room = rooms.get(roomId)
+      if (!permitted?.isHost || !room || room.materials.length >= MAX_MATERIALS) return false
+      room.materials.push(material)
+      broadcast(room)
+      return true
+    },
+  }
 }
+
+export type RoomRegistry = ReturnType<typeof attachRoomHandlers>

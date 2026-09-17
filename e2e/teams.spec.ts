@@ -82,13 +82,14 @@ test('Teams preview stays private, then streams changing video to viewers and la
   await installCapture(page)
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  const path = `/?room=teams-live-${Date.now()}`
-  await page.goto(path)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Host로 방 열기' }).click()
   await expect(page.getByTestId('connection-status')).toHaveText('실시간 연결')
   const guest = await browser.newPage()
   const late = await browser.newPage()
   try {
-    await guest.goto(new URL(path, page.url()).href)
+    await guest.goto(page.url())
+    await guest.getByRole('button', { name: 'Attendee로 입장' }).click()
     await expect(guest.getByTestId('connection-status')).toHaveText('실시간 연결')
     await expect(guest.getByRole('button', { name: 'Teams 창 공유', exact: true })).toHaveCount(0)
     await openTeams(page)
@@ -106,7 +107,8 @@ test('Teams preview stays private, then streams changing video to viewers and la
     await expect(guest.getByRole('button', { name: '발표 소리 켜기' })).toHaveCount(0)
     expect(await guest.getByTestId('shared-video').evaluate((element) =>
       ((element as HTMLVideoElement).srcObject as MediaStream).getAudioTracks().length)).toBe(0)
-    await late.goto(new URL(path, page.url()).href)
+    await late.goto(page.url())
+    await late.getByRole('button', { name: 'Attendee로 입장' }).click()
     await expectLiveFrames(late)
     await page.getByRole('button', { name: '공유 중지', exact: true }).click()
     await expect(guest.getByTestId('presentation-slide')).toBeVisible()
@@ -130,7 +132,8 @@ test('Teams preview stays private, then streams changing video to viewers and la
 
 test('Teams cancellation releases preview tracks and a picker returning after close cannot publish', async ({ page }) => {
   await installCapture(page)
-  await page.goto(`/?room=teams-cancel-${Date.now()}`)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Host로 방 열기' }).click()
   await expect(page.getByTestId('connection-status')).toHaveText('실시간 연결')
   await openTeams(page)
   await page.getByRole('button', { name: 'Teams 창 선택', exact: true }).click()
@@ -151,7 +154,8 @@ test('Teams cancellation releases preview tracks and a picker returning after cl
 
 test('Teams capture denial, full-screen selection and unavailable capture show explicit errors', async ({ page }, testInfo) => {
   await installCapture(page)
-  await page.goto(`/?room=teams-errors-${Date.now()}`)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Host로 방 열기' }).click()
   await expect(page.getByTestId('connection-status')).toHaveText('실시간 연결')
   await page.evaluate(() => { window.captureHarness.mode = 'deny' })
   await openTeams(page)
