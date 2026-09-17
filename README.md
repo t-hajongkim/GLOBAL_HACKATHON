@@ -134,6 +134,32 @@ deletes the room's questions and other state. Capacity is one presenter plus
 24 seats. Anyone with the room URL can join: this is a small-group prototype,
 not an authenticated enterprise meeting service.
 
+## AI Q&A assistant
+
+Attendees can privately ask a chatbot questions during the session via a
+floating widget. It answers only from whatever background context the host
+has shared with the room (set via the `room:context` event; the host-facing
+UI for authoring that context is a separate effort). Each attendee's chat is
+private to their own browser tab and is not persisted or broadcast.
+
+The server calls an OpenAI-compatible chat-completions endpoint, configured
+via environment variables:
+
+- `AI_API_KEY` — bearer token for your LLM provider (falls back to
+  `GITHUB_TOKEN` if unset).
+- `AI_API_BASE_URL` — the OpenAI-compatible base URL to call (e.g.
+  `https://api.openai.com/v1` for OpenAI, an Azure AI Foundry endpoint, or any
+  self-hosted/OpenAI-compatible gateway). **Note:** GitHub Models
+  (`models.github.ai`), the placeholder default, was permanently retired on
+  2026-07-30 and no longer serves requests — you must set this to a live
+  provider to get real answers.
+- `AI_MODEL` — the model name/deployment your provider expects (defaults to
+  `openai/gpt-4o-mini`, matching GitHub Models' old naming; adjust for your
+  provider, e.g. `gpt-4o-mini` for OpenAI).
+
+Without a configured key or a working `AI_API_BASE_URL`, the widget still
+opens but returns a clear error instead of an answer.
+
 ## Checks
 
 ```powershell

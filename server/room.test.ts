@@ -50,6 +50,24 @@ function nextEvent<E extends keyof IncomingEvents>(
   })
 }
 
+// The inverse of nextEvent: confirms an event does NOT arrive within a short window,
+// for asserting that something stays private and is never broadcast.
+function noEvent<E extends keyof IncomingEvents>(socket: Client, event: E, windowMs = 300) {
+  return new Promise<void>((resolve, reject) => {
+    const emitter = socket as Socket
+    const listener = () => {
+      clearTimeout(timer)
+      emitter.off(event, listener)
+      reject(new Error(`Expected no ${event}, but one arrived`))
+    }
+    const timer = setTimeout(() => {
+      emitter.off(event, listener)
+      resolve()
+    }, windowMs)
+    emitter.on(event, listener)
+  })
+}
+
 function request<T = undefined>(socket: Client, event: ClientEvent, ...args: unknown[]) {
   return new Promise<Acknowledgement<T>>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Timed out acknowledging ${event}`)), WAIT_MS)
@@ -684,4 +702,67 @@ test('room count is bounded and emptied rooms free capacity, including direct ro
   await good(second, 'room:leave')
   assert.equal((await join(third, 'limit-first')).hostId, third.id)
   await good(second, 'room:leave')
+})
+
+test('room:context is host-only, is never part of any broadcast room:state, and feeds the AI assistant privately', testOptions, async (t) => {
+  const { connect } = await fixture(t)
+  const [host, viewer] = await Promise.all([connect(), connect()])
+  await join(host, 'context-room')
+  await join(viewer, 'context-room')
+  assert.match(await bad(viewer, 'room:context', { context: '권한 없는 변경' }), /진행자/)
+
+  const [, room] = await Promise.all([
+    noEvent(viewer, 'room:state'),
+    good(host, 'room:context', { context: '발표 자료: 오늘의 주제는 협업입니다.' }),
+  ])
+  assert.equal(room, undefined)
+  // Defence in depth: even a future regression that re-adds a `context` field to
+  // RoomSnapshot server-side should be caught here, not just by the TS type.
+  assert.doesNotMatch(JSON.stringify(latest(host)), /오늘의 주제는 협업입니다/)
+
+  // Trims and allows clearing back to an empty string (distinct from unset/never-set).
+  await good(host, 'room:context', { context: '   ' })
+})
+
+test('the AI assistant answers privately from the room context without broadcasting to other participants', testOptions, async (t) => {
+  const originalFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = originalFetch })
+  let capturedBody: { messages: { role: string; content: string }[] } | undefined
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    capturedBody = JSON.parse(init.body as string)
+    return new Response(JSON.stringify({ choices: [{ message: { content: '협업을 주제로 다룹니다.' } }] }), { status: 200 })
+  }) as typeof fetch
+  process.env.AI_API_KEY = 'test-key'
+  t.after(() => { delete process.env.AI_API_KEY })
+
+  const { connect } = await fixture(t)
+  const [host, viewer] = await Promise.all([connect(), connect()])
+  await join(host, 'ai-room')
+  await join(viewer, 'ai-room')
+  await good(host, 'room:context', { context: '오늘 발표 주제는 협업입니다.' })
+
+  const [reply] = await Promise.all([
+    good<{ answer: string }>(viewer, 'ai:ask', { question: '오늘 주제가 뭐예요?' }),
+    noEvent(host, 'room:state'),
+  ])
+  assert.equal(reply.answer, '협업을 주제로 다룹니다.')
+  assert.match(capturedBody?.messages[0].content ?? '', /오늘 발표 주제는 협업입니다\./)
+  assert.deepEqual(capturedBody?.messages[1], { role: 'user', content: '오늘 주제가 뭐예요?' })
+
+  await bad(viewer, 'ai:ask', { question: '' })
+  await bad(viewer, 'ai:ask', { question: '💡'.repeat(501) })
+})
+
+test('the AI assistant never leaks an unexpected internal error message to the client', testOptions, async (t) => {
+  const originalFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = originalFetch })
+  globalThis.fetch = (() => { throw new TypeError('internal stack trace detail: /var/secret/path.ts:42') }) as unknown as typeof fetch
+  process.env.AI_API_KEY = 'test-key'
+  t.after(() => { delete process.env.AI_API_KEY })
+
+  const { connect } = await fixture(t)
+  const viewer = await connect()
+  await join(viewer, 'ai-error-room')
+  const error = await bad(viewer, 'ai:ask', { question: '아무거나 물어볼게요' })
+  assert.doesNotMatch(error, /internal stack trace|secret|TypeError/)
 })

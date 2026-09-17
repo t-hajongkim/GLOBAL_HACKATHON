@@ -7,6 +7,8 @@ export type ReactionEmoji = (typeof REACTIONS)[number]
 export const SEAT_COUNT = 24
 export const SLIDE_COUNT = 4
 export const MAX_QUESTION_LENGTH = 280
+export const MAX_CONTEXT_LENGTH = 20_000
+export const MAX_AI_QUESTION_LENGTH = 500
 export const DEFAULT_ROOM_TITLE = '작은 아이디어, 큰 만남'
 // Minimum pending questions before the AI grouping view surfaces.
 export const CLUSTER_MIN_QUESTIONS = 3
@@ -118,6 +120,8 @@ export interface ClientToServerEvents {
   'question:answer': (payload: { questionId: string }, ack: Ack) => void
   'presentation:set': (payload: Partial<Pick<Presentation, 'source' | 'slide'>>, ack: Ack) => void
   'room:title': (payload: { title: string }, ack: Ack) => void
+  'room:context': (payload: { context: string }, ack: Ack) => void
+  'ai:ask': (payload: { question: string }, ack: Ack<{ answer: string }>) => void
   'rtc:ready': (ack: Ack) => void
   'rtc:signal': (payload: SignalPayload, ack: Ack) => void
 }

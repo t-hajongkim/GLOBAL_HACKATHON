@@ -4,6 +4,7 @@ import {
   Clock3, DoorOpen, Footprints, Hand, LogOut, MessageCircle, MonitorUp,
   Pencil, Plus, Settings2, Smile, Sofa, Sparkles, Users, X,
 } from 'lucide-react'
+import { AiChatWidget } from './components/AiChatWidget.tsx'
 import { Dialog } from './components/Dialog.tsx'
 import { PixelAvatar, PixelLogo, PixelSprout } from './components/PixelArt.tsx'
 import { QuestionPanel, type PanelTab } from './components/QuestionPanel.tsx'
@@ -276,6 +277,7 @@ function App() {
       </div>
       {error && <div className="error-toast" role="alert"><span>{error}</span><button onClick={clearError} aria-label="오류 알림 닫기"><X size={17} /></button></div>}
       {toast && <div className="toast-message" role="status"><Check size={16} />{toast}</div>}
+      <AiChatWidget socket={socket} connected={connected} />
       {modal === 'profile' && <ProfileDialog profile={{ name: me?.name ?? profile.name, avatar: me?.avatar ?? profile.avatar }}
         onSave={async (next) => { const success = await actions.profile(next); if (success) setProfile(next); return success }}
         onClose={() => setModal(null)} />}
