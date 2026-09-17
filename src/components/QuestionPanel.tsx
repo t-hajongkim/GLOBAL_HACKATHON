@@ -70,6 +70,15 @@ export function QuestionPanel({
   const pendingCount = room?.questions.filter((question) => !question.answered).length ?? 0
   const isHost = room?.hostId === myId
   const raised = participants.filter((participant) => participant.handRaised)
+  const questionsById = new Map((room?.questions ?? []).map((question) => [question.id, question]))
+  const clusters = (room?.clusters ?? [])
+    .map((cluster) => ({
+      ...cluster,
+      members: cluster.questionIds
+        .map((id) => questionsById.get(id))
+        .filter((question): question is Question => question !== undefined && !question.answered),
+    }))
+    .filter((cluster) => cluster.members.length >= 2)
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -103,6 +112,28 @@ export function QuestionPanel({
             <div><strong>좋은 질문은, 함께 나눠요.</strong><p>궁금한 질문에 공감도 눌러 주세요.</p></div>
           </div>
           {raised.length > 0 && <div className="hand-queue"><Hand size={15} /><span>{raised.map((participant) => participant.name).join(', ')}<strong> 손들었어요</strong></span></div>}
+          {clusters.length > 0 && (
+            <section className="question-clusters" aria-label="비슷한 질문 묶음">
+              <div className="clusters-head">
+                <Sparkles size={14} /><strong>비슷한 질문 묶음</strong><span>{clusters.length}</span>
+              </div>
+              {clusters.map((cluster) => (
+                <article key={cluster.id} className="cluster-card" data-testid="question-cluster">
+                  <div className="cluster-top">
+                    <h4>{cluster.label}</h4>
+                    <span className={`cluster-tag ${cluster.aiGenerated ? 'is-ai' : ''}`}>{cluster.aiGenerated ? 'AI 요약' : '묶음'}</span>
+                  </div>
+                  <div className="cluster-meta">
+                    <span>질문 {cluster.members.length}개</span>
+                    <span><ArrowUp size={11} strokeWidth={2.5} /> 공감 {cluster.votes}</span>
+                  </div>
+                  <ul className="cluster-questions">
+                    {cluster.members.map((question) => <li key={question.id}>{question.text}</li>)}
+                  </ul>
+                </article>
+              ))}
+            </section>
+          )}
           <div className="question-sort">
             <span>우리의 질문 <b>{room?.questions.length ?? 0}</b></span>
             <label><span className="sr-only">질문 정렬</span><select value={sort} onChange={(event) => setSort(event.target.value)}>

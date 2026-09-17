@@ -5,7 +5,9 @@
 An original pixel-art cinema metaverse: walk around, take a seat, watch a
 presentation, raise a hand, ask questions, and send live emoji reactions.
 All artwork is original SVG/CSS; no game assets, external fonts, analytics,
-or third-party hosted services are used.
+or third-party hosted services are used. The one optional exception is
+**live question clustering** (see below): it is disabled by default and only
+calls Azure OpenAI when you explicitly configure credentials.
 
 ## Run (Windows, Node.js 22.12+)
 
@@ -37,6 +39,36 @@ the profile button changes your name and avatar.
 The first person is the presenter. Leaving transfers the role to the next
 actual participant and ends any screen share. Positions, seats, questions,
 votes, hand raising, reactions, title, and slides synchronize in real time.
+
+## Live question clustering
+
+When the audience piles on questions, similar ones are grouped so the host can
+answer a whole topic at once. Once a room has **3 or more pending (unanswered)
+questions**, a read-only **비슷한 질문 묶음** section appears at the top of the
+question panel for everyone, showing each group's label, question count, total
+공감 votes, and its member questions. Grouping is computed on the server and
+synchronizes in real time like the rest of the room state.
+
+Clustering runs in one of two modes:
+
+- **Local (default).** With no credentials configured, the server groups
+  questions with an on-device character-similarity heuristic. Nothing leaves
+  the machine, preserving the no-third-party-services promise. Group labels are
+  keyword-derived.
+- **Azure OpenAI (optional).** Set the environment variables below and the
+  server instead asks the model to group questions and write a short Korean
+  label per group (shown with an **AI 요약** badge). If a request fails, it
+  silently falls back to the local heuristic.
+
+```powershell
+$env:AZURE_OPENAI_ENDPOINT = "https://<resource>.openai.azure.com"
+$env:AZURE_OPENAI_API_KEY = "<key>"
+$env:AZURE_OPENAI_DEPLOYMENT = "<deployment-name>"
+$env:AZURE_OPENAI_API_VERSION = "2024-08-01-preview"  # optional
+```
+
+Keys are read only on the server and never reach the browser bundle. Question
+text is sent to Azure OpenAI only while these variables are set.
 
 ## Teams window streaming
 
