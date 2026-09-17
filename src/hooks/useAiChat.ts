@@ -21,10 +21,11 @@ export function useAiChat(socket: RoomSocket, connected: boolean) {
   const counter = useRef(0)
 
   const nextId = () => `${Date.now()}-${(counter.current += 1)}`
+  const inFlight = useRef(false)
 
   const ask = useCallback(async (question: string) => {
     const trimmed = question.trim()
-    if (!trimmed || pending) return false
+    if (!trimmed || inFlight.current) return false
     if (!connected) {
       setError('연결이 끊어졌어요. 다시 연결되면 시도해 주세요.')
       return false
@@ -33,6 +34,7 @@ export function useAiChat(socket: RoomSocket, connected: boolean) {
     setMessages((previous) => [...previous, { id: nextId(), role: 'user', text: clipped }])
     setPending(true)
     setError(null)
+    inFlight.current = true
     try {
       const { answer } = await emitWithAck<{ answer: string }>(
         (ack) => socket.emit('ai:ask', { question: clipped }, ack),
@@ -44,6 +46,7 @@ export function useAiChat(socket: RoomSocket, connected: boolean) {
       setError(errorMessage(askError))
       return false
     } finally {
+      inFlight.current = false
       setPending(false)
     }
   }, [socket, connected, pending])
