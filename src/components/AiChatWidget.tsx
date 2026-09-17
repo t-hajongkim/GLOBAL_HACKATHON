@@ -17,9 +17,7 @@ export function AiChatWidget({ socket, connected }: { socket: RoomSocket; connec
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, pending])
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault()
-    if (!text.trim() || pending) return
+  const submit = (event: { preventDefault: () => void }) => {
     const question = text
     setText('')
     void ask(question)
