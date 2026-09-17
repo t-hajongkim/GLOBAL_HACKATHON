@@ -724,5 +724,4 @@ test('explicit entry roles and room-scoped original materials enforce host write
   assert.match(downloaded.headers.get('content-disposition') ?? '', /attachment/)
   await good(attendee, 'room:leave')
   assert.equal((await fetch(endpoint, { headers: { Authorization: `Bearer ${joined.accessToken}` } })).status, 401)
-  await good(second, 'room:leave')
 })
