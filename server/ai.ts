@@ -1,8 +1,10 @@
 // OpenAI-compatible chat-completions client for the attendee-facing AI assistant.
-// Defaults to GitHub Models' inference endpoint (works with a `models:read`-scoped
-// GITHUB_TOKEN/PAT). Point AI_API_BASE_URL/AI_API_KEY/AI_MODEL at a different
-// OpenAI-compatible provider (including a Copilot-compatible endpoint, if available
-// to you) without any code changes.
+// GitHub Models (models.github.ai) was permanently retired on 2026-07-30, so it is no
+// longer usable as a working default — the DEFAULT_BASE_URL/DEFAULT_MODEL below are
+// only a fallback shape and will return errors until you point them at a live
+// OpenAI-compatible provider (e.g. https://api.openai.com/v1 with an OpenAI key,
+// Azure AI Foundry, or any self-hosted/OpenAI-compatible gateway) via the
+// AI_API_BASE_URL / AI_API_KEY / AI_MODEL environment variables, without code changes.
 
 const DEFAULT_BASE_URL = 'https://models.github.ai/inference'
 const DEFAULT_MODEL = 'openai/gpt-4o-mini'
