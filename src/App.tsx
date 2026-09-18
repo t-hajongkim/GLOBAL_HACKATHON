@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AppWindow, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronRight, CircleHelp,
   Clock3, FileText, Footprints, Hand, LogOut, MessageCircle, MonitorUp,
-  Pencil, Plus, Settings2, Smile, Sofa, Sparkles, Users, X,
+  Pencil, Plus, Smile, Users, X,
 } from 'lucide-react'
 import { AiChatWidget } from './components/AiChatWidget.tsx'
 import { Dialog } from './components/Dialog.tsx'
@@ -40,6 +40,7 @@ function App() {
   const { socket, room, myId, accessToken, status, error, reactions, actions, reportError, clearError } = useRoom(target, profile)
   const screen = useScreenShare(socket, room, myId, reportError)
   const [modal, setModal] = useState<Modal>(null)
+  const headerDialogTrigger = useRef<HTMLButtonElement | null>(null)
   const [tab, setTab] = useState<PanelTab>('questions')
   const [focused, setFocused] = useState(false)
   const [reactionOpen, setReactionOpen] = useState(false)
@@ -61,6 +62,12 @@ function App() {
     return () => window.clearInterval(timer)
   }, [])
   useEffect(() => () => window.clearTimeout(toastTimer.current), [])
+  useEffect(() => {
+    if (modal === null && headerDialogTrigger.current) {
+      headerDialogTrigger.current.focus()
+      headerDialogTrigger.current = null
+    }
+  }, [modal])
   useEffect(() => {
     const onPopState = () => {
       setTarget(null)
@@ -236,25 +243,12 @@ function App() {
   return (
     <div className="app-shell">
       <a className="sr-only skip-link" href="#meeting-room">미팅룸으로 건너뛰기</a>
-      <aside className="side-rail" aria-label="스페이스 메뉴">
-        <button className="brand-icon" aria-label="모여극장 이용 안내" onClick={() => setModal('help')}><PixelLogo /></button>
-        <nav className="nav-items">
-          <button className="nav-button active" aria-label="상영관" title="상영관" onClick={() => setFocused(false)}><Sofa size={22} /></button>
-          <button className="nav-button" aria-label="참여자 보기" title="참여자" onClick={() => { setTab('people'); setFocused(false) }}><Users size={22} /></button>
-          <button className="nav-button" aria-label="질문 패널 열기" title="질문 (Q)" onClick={openQuestions}><MessageCircle size={21} /></button>
-          <span className="rail-separator" />
-          <button className="nav-button" aria-label="새 미팅룸 만들기" title="새 미팅룸" onClick={() => setModal('new')}><Plus size={23} /></button>
-        </nav>
-        <div className="rail-bottom">
-          <button className="nav-button" aria-label="이용 안내" title="이용 안내" onClick={() => setModal('help')}><CircleHelp size={21} /></button>
-          <button className="nav-button" aria-label={isHost ? '미팅룸 설정' : '프로필 설정'} title="설정" disabled={!connected} onClick={() => setModal(isHost ? 'title' : 'profile')}><Settings2 size={21} /></button>
-          <button className="rail-profile" aria-label="내 캐릭터 꾸미기" disabled={!connected} onClick={() => setModal('profile')}><PixelAvatar color={me?.avatar ?? profile.avatar} size={30} /></button>
-        </div>
-      </aside>
       <div className="main-shell">
         <header className="app-header">
           <div className="header-brand"><PixelLogo small /><strong>모여극장<span>pixel meet</span></strong><span className="header-tagline">작은 공간, 더 가까운 우리.</span></div>
-          <div className="header-right"><span className="header-chip"><Sparkles size={14} /> 함께라서 좋은 오늘</span>
+          <div className="header-right">
+            <button className="header-create-room" onClick={(event) => { headerDialogTrigger.current = event.currentTarget; setModal('new') }}><Plus size={16} />새 미팅룸 만들기</button>
+            <button className="header-help" aria-label="이용 안내" title="이용 안내" onClick={(event) => { headerDialogTrigger.current = event.currentTarget; setModal('help') }}><CircleHelp size={20} /></button>
             <button className="header-profile" disabled={!connected} onClick={() => setModal('profile')} aria-label="이름과 캐릭터 변경">
               <span className={`mini-avatar avatar-bg-${me?.avatar ?? profile.avatar}`}><PixelAvatar color={me?.avatar ?? profile.avatar} size={24} /></span>
               <span>{me?.name ?? profile.name}</span><ChevronRight size={14} />
