@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Hand, LoaderCircle, Maximize2, Minimize2, Monitor, RotateCcw, Volume2, VolumeX } from 'lucide-react'
 import { PixelAvatar, PixelChair, PixelPlant, PixelSprout } from './PixelArt.tsx'
 import { DEFAULT_ROOM_TITLE, SEAT_COUNT, SLIDE_COUNT, isLivePresentation, type Participant, type Reaction, type RoomSnapshot } from '../shared/protocol.ts'
-import type { ConnectionStatus, RoomActions } from '../hooks/useRoom.ts'
+import type { ConnectionStatus, QuestionBubble, RoomActions } from '../hooks/useRoom.ts'
 
 const seatColumns = [18, 26, 34, 42, 58, 66, 74, 82]
 
@@ -92,13 +92,14 @@ function Seat({
 }
 
 export function Theater({
-  room, myId, status, reactions, actions, focused, onToggleFocus,
+  room, myId, status, reactions, questionBubbles, actions, focused, onToggleFocus,
   stream, isLocal, screenError, onRetryScreen,
 }: {
   room: RoomSnapshot | null
   myId: string
   status: ConnectionStatus
   reactions: Reaction[]
+  questionBubbles: QuestionBubble[]
   actions: RoomActions
   focused: boolean
   onToggleFocus: () => void
@@ -188,6 +189,25 @@ export function Theater({
               <span className="walking-name">{participant.name}{participant.id === myId && <b>나</b>}</span>
             </div>
           ))}
+        </div>
+        <div className="avatar-question-layer" aria-live="polite" aria-relevant="additions text">
+          {questionBubbles.map((bubble) => {
+            const participant = room?.participants.find((person) => person.id === bubble.participantId)
+            if (!participant) return null
+            const seat = participant.seat
+            const seated = seat !== null
+            const onStage = !seated && participant.position.y < 48
+            const x = seat !== null ? seatColumns[seat % 8] : onStage ? 69 : participant.position.x
+            const y = seat !== null ? 57 + Math.floor(seat / 8) * 14 : onStage ? 44 : participant.position.y
+            return <div key={bubble.id}
+              className={`avatar-question-bubble ${seated ? 'is-seated' : 'is-standing'} ${participant.id === myId ? 'is-me' : ''}`}
+              data-testid="question-bubble" data-participant-id={participant.id}
+              style={{ left: `clamp(92px, ${x}%, calc(100% - 92px))`, top: `${y}%` }}
+              aria-label={`${participant.name}의 질문: ${bubble.text}`} title={bubble.text}>
+              <span>{participant.name}<b>질문</b></span>
+              <p>{bubble.text}</p>
+            </div>
+          })}
         </div>
         <div className="row-label row-a" aria-hidden="true">A</div>
         <div className="row-label row-b" aria-hidden="true">B</div>

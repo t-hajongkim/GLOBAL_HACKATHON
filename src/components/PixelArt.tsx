@@ -84,14 +84,8 @@ export function PixelSprout({ variant = 0 }: { variant?: number }) {
 
 export function PixelLogo({ small = false }: { small?: boolean }) {
   return (
-    <svg width={small ? 30 : 38} height={small ? 30 : 38} viewBox="0 0 32 32"
-      shapeRendering="crispEdges" aria-hidden="true">
-      <path fill="#b8ccb0" d="M8 2h16v3h4v4h3v16h-3v4H4v-4H1V9h3V5h4z" />
-      <path fill="#263e35" d="M7 9h18v11H7z" />
-      <path fill="#f0d89a" d="M10 11h12v6H10z" />
-      <path fill="#6c947c" d="M6 23h5v4H6zm8 0h5v4h-5zm8 0h5v4h-5z" />
-      <path fill="#e3edcd" d="M12 3h8v2h-8z" />
-    </svg>
+    <img className="team-logo" src="/team-logo.png" alt="모여극장 로고"
+      width={small ? 46 : 54} height={small ? 46 : 54} decoding="async" />
   )
 }
 

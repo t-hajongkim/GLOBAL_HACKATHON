@@ -4,7 +4,8 @@
 
 An original pixel-art cinema metaverse: walk around, take a seat, watch a
 presentation, raise a hand, ask questions, and send live emoji reactions.
-All artwork is original SVG/CSS; no game assets, external fonts, analytics,
+The team-provided mint mascot is used on the welcome screen, header, and browser
+icon (`public\team-logo.png`). Room artwork uses locally drawn SVG/CSS; no game assets, external fonts, analytics,
 or third-party hosted services are used. The one optional exception is
 **live question clustering** (see below): it is disabled by default and only
 calls Azure OpenAI when you explicitly configure credentials.
@@ -24,8 +25,22 @@ Hosts name and create a new room and may select presentation materials before
 opening it. Files finish uploading before the host enters the theater.
 Attendees enter a host's invite link or room code; a missing room is never
 created by an attendee. The invite URL preselects Attendee.
-**먼저 체험해 보기** opens a clearly labeled demo with example attendees.
-Actual rooms contain no simulated participants. Every browser tab joins separately.
+Every newly created room starts with **8 sample attendees and 3 mock questions**,
+once only. They are explicitly labeled as examples and excluded from real attendee
+counts. They occupy 8 audience seats and are never promoted to Host. Each new
+attendee sees the same samples rather than creating duplicates.
+**먼저 체험해 보기** remains available as a separate demo entry.
+Every browser tab joins separately.
+
+The left navigation rail has been removed. Room creation, help, and profile
+actions are available directly in the header; questions and attendees remain
+in the room's side panel. Team question-clustering and private AI-chat features
+are retained.
+
+New public questions also appear in a speech bubble above the author's avatar
+for 12 seconds, visible to everyone in the room. Bubbles follow walking and seated
+avatars; a newer question replaces that person's previous bubble. Existing
+questions are not replayed on entry, and private AI-chat questions stay private.
 
 | Action | Control |
 | --- | --- |
@@ -170,7 +185,8 @@ proxying that preserves the original Host/Origin consistently.
 
 Room state is in memory. The last real person leaving or a server restart
 deletes the room's questions and other state. Capacity is one presenter plus
-24 seats. Anyone with the room URL can join: this is a small-group prototype,
+24 seats, including the 8 sample attendees (up to 17 real participants while all
+samples remain seated). Anyone with the room URL can join: this is a small-group prototype,
 not an authenticated enterprise meeting service.
 
 ## AI Q&A assistant

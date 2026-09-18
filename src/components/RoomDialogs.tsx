@@ -70,7 +70,7 @@ export function InviteDialog({ isDemo, roomUrl, onCreate, onClose, onError }: {
     <Dialog title={isDemo ? '우리만의 상영관을 열어요' : '함께 앉을 사람을 초대해요'} onClose={onClose}>
       <div className="invite-art"><PixelAvatar color="peach" size={42} /><PixelSprout /><PixelAvatar color="lilac" size={42} /></div>
       {isDemo ? <>
-        <p className="dialog-description">지금은 예시 관객이 있는 체험 공간이에요.<br />새 방을 만들면 실제 참여자끼리 만날 수 있어요.</p>
+        <p className="dialog-description">지금은 기능을 둘러보는 체험 공간이에요.<br />새 방에는 예시 관객 8명과 질문 3개가 준비돼요. 초대 링크로 팀원들과 함께해요.</p>
         <div className="invite-feature"><Users size={17} /><span>관객석 24개 · 회원가입 없이 링크로 입장</span></div>
         <div className="invite-feature"><MonitorUp size={17} /><span>발표 화면 공유 · 실시간 질문과 리액션</span></div>
         <button className="primary-button full-width" onClick={onCreate}><DoorOpen size={17} /> 실제 미팅룸 만들기</button>
@@ -93,10 +93,10 @@ export function HelpDialog({ onClose }: { onClose: () => void }) {
       <p className="dialog-description">화면은 앞에, 우리는 함께.<br />작은 픽셀 극장에서 더 가까운 만남을 시작해요.</p>
       <div className="help-item"><span>01</span><div><strong>마음에 드는 자리에 앉아요</strong><p>비어 있는 좌석을 누르면 내 캐릭터가 이동해요.</p></div></div>
       <div className="help-item"><span>02</span><div><strong>발표에 마음을 보태요</strong><p>아래 이모지를 누르면 내 자리에서 리액션이 떠올라요.</p></div></div>
-      <div className="help-item"><span>03</span><div><strong>궁금하면, 손을 들거나 질문해요</strong><p>좋은 질문에는 공감! 발표자는 답변 완료를 표시할 수 있어요.</p></div></div>
+      <div className="help-item"><span>03</span><div><strong>궁금하면, 손을 들거나 질문해요</strong><p>공개 질문은 캐릭터 머리 위에 12초간 떠올라요. 좋은 질문에는 공감! 비공개 AI 질문은 나만 볼 수 있어요.</p></div></div>
       <div className="help-item"><span>04</span><div><strong>큰 화면으로 함께 봐요</strong><p>방을 처음 연 사람이 발표자예요. 화면·창·탭을 공유하고, 집중 모드로 더 크게 볼 수 있어요.</p></div></div>
       <div className="shortcut-list"><span><kbd>H</kbd> 손들기</span><span><kbd>Q</kbd> 질문하기</span><span><kbd>F</kbd> 화면 집중</span><span><kbd>1</kbd>–<kbd>6</kbd> 리액션</span></div>
-      <p className="dialog-small">음성 통화·녹화 기능은 없어요. 화면 공유 소리는 브라우저에서 선택한 탭/시스템 오디오만 전달돼요. 데모 관객과 예시 질문은 실제 사용자가 아니에요.</p>
+      <p className="dialog-small">음성 통화·녹화 기능은 없어요. 화면 공유 소리는 브라우저에서 선택한 탭/시스템 오디오만 전달돼요. 모든 새 방의 예시 관객 8명과 질문 3개는 실제 참여자가 아니에요.</p>
       <button className="primary-button full-width" onClick={onClose}>좋아요, 함께해요 <span>✦</span></button>
     </Dialog>
   )

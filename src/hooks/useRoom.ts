@@ -17,6 +17,7 @@ export type RoomSocket = Socket<ServerToClientEvents, ClientToServerEvents>
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'failed'
 export interface RoomTarget { id: string; demo: boolean; role: JoinRole; title?: string; attempt?: number }
 export interface Profile { name: string; avatar: AvatarColor }
+export interface QuestionBubble { id: string; participantId: string; text: string; shownAt: number }
 
 export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
   const [socket] = useState<RoomSocket>(() =>
@@ -28,6 +29,7 @@ export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [error, setError] = useState<string | null>(null)
   const [reactions, setReactions] = useState<Reaction[]>([])
+  const [questionBubbles, setQuestionBubbles] = useState<QuestionBubble[]>([])
   const profileRef = useRef(initialProfile)
   const roomId = target?.id
   const demo = target?.demo ?? false
@@ -41,14 +43,17 @@ export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
     if (!roomId) {
       setRoom(null)
       setAccessToken('')
+      setQuestionBubbles([])
       setStatus('disconnected')
       return
     }
 
     let active = true
+    let knownQuestionIds: Set<string> | null = null
     setRoom(null)
     setAccessToken('')
     setReactions([])
+    setQuestionBubbles([])
     setStatus('connecting')
 
     const onConnect = async () => {
@@ -59,6 +64,7 @@ export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
         if (!active) return
         setMyId(socket.id ?? '')
         const { accessToken: token, role: actualRole, ...snapshot } = joinedRoom
+        knownQuestionIds ??= new Set(snapshot.questions.map((question) => question.id))
         setRoom(snapshot)
         setAccessToken(token)
         setStatus('connected')
@@ -72,13 +78,34 @@ export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
       }
     }
     const onState = (snapshot: RoomSnapshot) => {
-      if (active && snapshot.id === roomId) setRoom(snapshot)
+      if (!active || snapshot.id !== roomId) return
+      const seen = knownQuestionIds
+      const added = seen ? snapshot.questions.filter((question) => !question.isDemo && !seen.has(question.id)) : []
+      knownQuestionIds = new Set(snapshot.questions.map((question) => question.id))
+      if (added.length > 0) {
+        const shownAt = Date.now()
+        setQuestionBubbles((previous) => {
+          const byParticipant = new Map(previous.map((bubble) => [bubble.participantId, bubble]))
+          for (const question of added) {
+            byParticipant.set(question.authorId, {
+              id: question.id, participantId: question.authorId, text: question.text, shownAt,
+            })
+          }
+          return [...byParticipant.values()]
+        })
+      }
+      setRoom(snapshot)
     }
     const onReaction = (reaction: Reaction) => {
       setReactions((previous) => [...previous.slice(-23), reaction])
     }
     const onDisconnect = () => {
-      if (active) { setStatus('disconnected'); setAccessToken('') }
+      if (active) {
+        knownQuestionIds = null
+        setQuestionBubbles([])
+        setStatus('disconnected')
+        setAccessToken('')
+      }
     }
     const onConnectError = () => {
       if (active) {
@@ -113,6 +140,11 @@ export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
       setReactions((previous) => {
         if (!previous.some((reaction) => reaction.createdAt < cutoff)) return previous
         return previous.filter((reaction) => reaction.createdAt >= cutoff)
+      })
+      const questionCutoff = Date.now() - 12_000
+      setQuestionBubbles((previous) => {
+        if (!previous.some((bubble) => bubble.shownAt <= questionCutoff)) return previous
+        return previous.filter((bubble) => bubble.shownAt > questionCutoff)
       })
     }, 1_000)
     return () => window.clearInterval(interval)
@@ -151,7 +183,7 @@ export function useRoom(target: RoomTarget | null, initialProfile: Profile) {
   }), [command, socket])
 
   return {
-    socket, room, myId, accessToken, status, error, reactions, actions,
+    socket, room, myId, accessToken, status, error, reactions, questionBubbles, actions,
     reportError: setError,
     clearError: () => setError(null),
   }
