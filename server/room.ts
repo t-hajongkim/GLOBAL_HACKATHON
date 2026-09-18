@@ -174,8 +174,8 @@ function seatPosition(seat: number) {
   return { x: [18, 26, 34, 42, 58, 66, 74, 82][seat % 8], y: 57 + Math.floor(seat / 8) * 14 }
 }
 
-function seedDemo(room: Room) {
-  const names = ['모모', '리오', '유나', '하루', '소라', '도담', '루미', '나루', '보리', '다온']
+function seedExamples(room: Room) {
+  const names = ['모모', '리오', '유나', '하루', '소라', '도담', '루미', '나루']
   const participants = names.map<Participant>((name, seat) => ({
     id: `demo:${randomUUID()}`,
     name,
@@ -429,7 +429,7 @@ export function attachRoomHandlers(
           presentation: { source: 'slides', slide: 0, presenterId: socket.id },
           context: '',
         }
-        if (payload.demo) seedDemo(room)
+        seedExamples(room)
         rooms.set(room.id, room)
       } else {
         room.participants.set(socket.id, participant)

@@ -37,7 +37,7 @@ function App() {
   const uploadedCount = useRef(0)
   const uploadRunning = useRef(false)
   const [profile, setProfile] = useState<Profile>({ name: '민트', avatar: 'mint' })
-  const { socket, room, myId, accessToken, status, error, reactions, actions, reportError, clearError } = useRoom(target, profile)
+  const { socket, room, myId, accessToken, status, error, reactions, questionBubbles, actions, reportError, clearError } = useRoom(target, profile)
   const screen = useScreenShare(socket, room, myId, reportError)
   const [modal, setModal] = useState<Modal>(null)
   const headerDialogTrigger = useRef<HTMLButtonElement | null>(null)
@@ -273,7 +273,7 @@ function App() {
           </div>
           <div className={`meeting-layout ${focused ? 'focus-mode' : ''}`}>
             <section className="theater-card" aria-label="가상 미팅룸">
-              <Theater room={room} myId={myId} status={status} reactions={reactions} actions={actions}
+              <Theater room={room} myId={myId} status={status} reactions={reactions} questionBubbles={questionBubbles} actions={actions}
                 focused={focused} onToggleFocus={() => setFocused(!focused)}
                 stream={screen.stream} isLocal={screen.isLocal} screenError={screen.screenError}
                 onRetryScreen={() => { void screen.retry() }} />
@@ -315,7 +315,7 @@ function App() {
           </div>
           <div className="world-help">
             <span className="keyboard-hint"><Footprints size={14} /><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 <i>·</i> 빈 좌석을 눌러 앉아 보세요</span>
-            <span className="room-capacity"><Users size={14} /> 실제 참여 {liveCount}명{isDemo && ` · 예시 관객 ${demoCount}명`} <span>/ 24석</span></span>
+            <span className="room-capacity"><Users size={14} /> 실제 참여 {liveCount}명{demoCount > 0 && ` · 예시 관객 ${demoCount}명`} <span>/ 24석</span></span>
           </div>
           {!focused && <div className="mobile-direction-pad" role="group" aria-label="캐릭터 이동">
             <span>걸어보기</span>
@@ -324,7 +324,10 @@ function App() {
             <button aria-label="아래로 이동" disabled={!connected} onClick={() => { void move(0, 4) }}><ArrowDown size={18} /></button>
             <button aria-label="오른쪽으로 이동" disabled={!connected} onClick={() => { void move(4, 0) }}><ArrowRight size={18} /></button>
           </div>}
-          {isDemo && <div className="demo-notice"><span>PREVIEW</span> 지금은 예시 관객과 함께하는 체험 공간이에요. <button onClick={() => setModal('invite')}>우리만의 진짜 미팅룸 열기 <ArrowRight size={13} /></button></div>}
+          {demoCount > 0 && <div className="demo-notice"><span>{isDemo ? 'PREVIEW' : 'SAMPLE'}</span>
+            {isDemo ? '지금은 예시 관객과 함께하는 체험 공간이에요.' : `시작을 돕는 예시 관객 ${demoCount}명과 질문이 함께 있어요. 실제 참여자와는 별도로 표시돼요.`}
+            {isDemo && <button onClick={() => setModal('invite')}>우리만의 진짜 미팅룸 열기 <ArrowRight size={13} /></button>}
+          </div>}
           <div className="footer-note"><span>MADE FOR LITTLE MOMENTS, TOGETHER.</span><span>모여극장 <i>✦</i> PIXEL MEET</span></div>
         </main>
       </div>

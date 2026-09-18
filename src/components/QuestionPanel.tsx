@@ -158,7 +158,7 @@ export function QuestionPanel({
                 {sending ? '보내는 중' : sent ? '보냈어요' : '질문 보내기'}
               </button>
             </div>
-            <p className="question-privacy">질문은 이 방에 있는 모두에게 보여요.</p>
+            <p className="question-privacy">공개 질문은 모두에게 보이고, 캐릭터 위에도 잠시 떠요.</p>
             <span className="sr-only" role="status">{sent ? '질문을 보냈어요.' : ''}</span>
           </form>
         </div>

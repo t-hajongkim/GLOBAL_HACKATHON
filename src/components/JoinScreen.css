@@ -9,10 +9,10 @@
 .join-story h1 { margin: 22px 0; color: #2e493b; font-size: clamp(32px, 3.7vw, 49px); line-height: 1.4; letter-spacing: -2.4px; font-weight: 750; }
 .join-story h1 em { color: #789665; font-style: normal; }
 .join-story > p { color: #7a8770; font-size: 13px; line-height: 1.95; }
-.join-pixel-scene { position: relative; display: flex; align-items: end; justify-content: center; gap: 20px; height: 210px; margin-top: 26px; padding: 65px 22px 20px; border: 8px solid #775440; outline: 1px solid #b99a70; background: repeating-linear-gradient(90deg, transparent 0 48px, #997552 48px 51px), #ae8b62; box-shadow: inset 0 48px #4c423d; }
-.join-pixel-screen { position: absolute; left: 22%; right: 22%; top: 13px; padding: 11px; border: 4px solid #806444; background: #efe8cf; color: #557148; font: 12px/1.4 Consolas, monospace; text-align: center; letter-spacing: 2px; }
-.join-pixel-screen i { color: #b59347; font-style: normal; }
-.join-pixel-scene > .pixel-sprout { width: 84px; height: 90px; }
+.join-mascot { display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 12px; min-height: 240px; background: radial-gradient(ellipse at 45% 60%, #e1ebd1a6, transparent 65%); }
+.join-mascot img { width: min(72%, 285px); height: auto; object-fit: contain; }
+.join-mascot > span { margin-left: -28px; color: #8c9b7a; font-size: 11px; line-height: 1.9; white-space: nowrap; }
+.join-mascot strong { color: #5c794b; font-size: 12px; font-weight: 600; }
 .join-agent-note { display: flex; align-items: center; gap: 11px; margin-top: 25px; color: #879777; font-size: 11px; line-height: 1.8; }
 .join-agent-note strong { color: #5d7650; font-weight: 500; }
 .join-card { padding: 30px; border: 1px solid #dde3d5; border-radius: 18px; background: #fffefa; box-shadow: 0 10px 36px #31453206; }
@@ -67,7 +67,12 @@
   .join-story { padding: 0 5px 25px; }
   .join-story h1 { font-size: 30px; line-height: 1.4; letter-spacing: -1.3px; margin: 12px 0; }
   .join-story h1 br:nth-of-type(2) { display: none; }
-  .join-story > p, .join-pixel-scene, .join-agent-note { display: none; }
+  .join-story > p, .join-agent-note { display: none; }
+  .join-story { position: relative; min-height: 122px; padding-right: 90px; }
+  .join-story h1 { font-size: 25px; }
+  .join-mascot { position: absolute; top: 0; right: -10px; margin: 0; width: 118px; min-height: 118px; }
+  .join-mascot img { width: 118px; }
+  .join-mascot > span { display: none; }
   .join-card { padding: 23px 20px; border-radius: 14px; }
   .join-role-options { gap: 9px; }
   .join-role-options label { padding: 13px; }

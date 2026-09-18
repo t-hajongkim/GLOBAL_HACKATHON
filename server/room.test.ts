@@ -236,7 +236,7 @@ test('websocket and polling origins allow only same-origin or explicit loopback 
   assert.ok(remoteHost.status === 400 || remoteHost.status === 403)
 })
 
-test('joining creates isolated real rooms, trims Unicode profiles, and is idempotent', testOptions, async (t) => {
+test('joining creates isolated seeded real rooms, trims Unicode profiles, and is idempotent', testOptions, async (t) => {
   const { connect } = await fixture(t)
   const [host, viewer, outsider, unjoined] = await Promise.all([connect(), connect(), connect(), connect()])
   const first = await join(host, 'room-alpha', '  민트  ')
@@ -244,27 +244,40 @@ test('joining creates isolated real rooms, trims Unicode profiles, and is idempo
   assert.equal(first.hostId, host.id)
   assert.equal(first.title, DEFAULT_ROOM_TITLE)
   assert.equal(first.isDemo, false)
-  assert.equal(first.participants.length, 1)
+  const samples = first.participants.filter((participant) => participant.isDemo)
+  assert.equal(samples.length, 8)
+  assert.equal(first.participants.length, samples.length + 1)
+  assert.equal(first.participants.filter((participant) => !participant.isDemo).length, 1)
   assert.deepEqual(first.presentation, { source: 'slides', slide: 0, presenterId: host.id })
   assert.equal(first.participants[0].name, '민트')
   assert.equal(first.participants[0].seat, null)
   assert.equal(first.participants[0].isDemo, false)
-  assert.deepEqual(first.questions, [])
+  assert.equal(first.questions.length, 3)
+  assert.ok(first.questions.every((question) => question.isDemo))
 
   const second = await join(viewer, 'room-alpha', '💡'.repeat(20))
   assert.equal(second.hostId, host.id)
-  assert.equal(second.participants.find((participant) => participant.id === viewer.id)?.seat, 0)
+  assert.equal(second.participants.find((participant) => participant.id === viewer.id)?.seat, samples.length)
+  assert.deepEqual(second.participants.filter((participant) => participant.isDemo), samples)
+  assert.deepEqual(second.questions, first.questions)
   const other = await join(outsider, 'room-beta')
   assert.equal(other.hostId, outsider.id)
-  assert.deepEqual(other.participants.map((participant) => participant.id), [outsider.id])
+  assert.deepEqual(other.participants.filter((participant) => !participant.isDemo).map((participant) => participant.id), [outsider.id])
+  assert.equal(other.participants.filter((participant) => participant.isDemo).length, samples.length)
+  assert.equal(other.questions.length, first.questions.length)
+  assert.ok(other.participants.every((participant) => !first.participants.some((entry) => entry.id === participant.id)))
+  assert.ok(other.questions.every((question) => !first.questions.some((entry) => entry.id === question.id)))
   await bad(unjoined, 'room:hand', { raised: true })
   await bad(unjoined, 'room:reaction', { emoji: '👏' })
   await bad(unjoined, 'question:add', { text: '아직 입장하지 않았어요.' })
 
   const updated = await join(viewer, 'room-alpha', '  새 이름  ')
-  assert.equal(updated.participants.length, 2)
-  assert.equal(updated.participants.find((participant) => participant.id === viewer.id)?.seat, 0)
+  assert.equal(updated.participants.length, samples.length + 2)
+  assert.equal(updated.participants.filter((participant) => !participant.isDemo).length, 2)
+  assert.equal(updated.participants.find((participant) => participant.id === viewer.id)?.seat, samples.length)
   assert.equal(updated.participants.find((participant) => participant.id === viewer.id)?.name, '새 이름')
+  assert.deepEqual(updated.participants.filter((participant) => participant.isDemo), samples)
+  assert.deepEqual(updated.questions, first.questions)
   const outsideStates: RoomSnapshot[] = []
   outsider.on('room:state', (room) => outsideStates.push(room))
   await Promise.all([
@@ -273,7 +286,8 @@ test('joining creates isolated real rooms, trims Unicode profiles, and is idempo
   ])
   await mutate(outsider, 'room:hand', { raised: false })
   assert.ok(outsideStates.every((room) => room.id === 'room-beta'))
-  assert.equal(latest(outsider).participants.length, 1)
+  assert.equal(latest(outsider).participants.length, samples.length + 1)
+  assert.deepEqual(latest(outsider).questions, other.questions)
 })
 
 test('invalid runtime payloads, absent acknowledgements, and non-function acknowledgements are safe', testOptions, async (t) => {
@@ -338,22 +352,25 @@ test('invalid runtime payloads, absent acknowledgements, and non-function acknow
 test('seats are exclusive under simultaneous requests, hosts can sit, and leaving releases seats', testOptions, async (t) => {
   const { connect } = await fixture(t)
   const [host, first, second, newcomer] = await Promise.all([connect(), connect(), connect(), connect()])
-  await join(host, 'seat-room')
+  const initial = await join(host, 'seat-room')
+  const sampleCount = initial.participants.filter((participant) => participant.isDemo).length
+  const hostSeat = sampleCount + 5
+  const contestedSeat = sampleCount + 3
   await join(first, 'seat-room')
   await join(second, 'seat-room')
-  assert.equal((await mutate(host, 'room:seat', { seat: 5 })).participants.find((participant) => participant.id === host.id)?.seat, 5)
-  assert.match(await bad(first, 'room:seat', { seat: 5 }), /자리/)
+  assert.equal((await mutate(host, 'room:seat', { seat: hostSeat })).participants.find((participant) => participant.id === host.id)?.seat, hostSeat)
+  assert.match(await bad(first, 'room:seat', { seat: hostSeat }), /자리/)
 
   const results = await Promise.all([
-    request(first, 'room:seat', { seat: 3 }),
-    request(second, 'room:seat', { seat: 3 }),
+    request(first, 'room:seat', { seat: contestedSeat }),
+    request(second, 'room:seat', { seat: contestedSeat }),
   ])
   assert.equal(results.filter((result) => result.ok).length, 1)
   const winner = results[0].ok ? first : second
   const loser = results[0].ok ? second : first
   const winnerId = winner.id
   const occupied = await mutate(host, 'room:hand', { raised: false })
-  assert.equal(occupied.participants.filter((participant) => participant.seat === 3).length, 1)
+  assert.equal(occupied.participants.filter((participant) => participant.seat === contestedSeat).length, 1)
   const seats = occupied.participants.map((participant) => participant.seat)
   assert.equal(new Set(seats).size, seats.length)
 
@@ -362,10 +379,10 @@ test('seats are exclusive under simultaneous requests, hosts can sit, and leavin
     good(winner, 'room:leave'),
   ])
   await bad(winner, 'room:hand', { raised: true })
-  const released = await mutate(loser, 'room:seat', { seat: 3 })
-  assert.equal(released.participants.find((participant) => participant.id === loser.id)?.seat, 3)
+  const released = await mutate(loser, 'room:seat', { seat: contestedSeat })
+  assert.equal(released.participants.find((participant) => participant.id === loser.id)?.seat, contestedSeat)
   const arrived = await join(newcomer, 'seat-room')
-  assert.equal(arrived.participants.find((participant) => participant.id === newcomer.id)?.seat, 0)
+  assert.equal(arrived.participants.find((participant) => participant.id === newcomer.id)?.seat, sampleCount)
 })
 
 test('hands and authoritative reactions broadcast only within the room, with conservative per-socket limits', testOptions, async (t) => {
@@ -408,31 +425,35 @@ test('hands and authoritative reactions broadcast only within the room, with con
 test('questions trim Unicode text, update author profiles, toggle unique votes, and remove departing live votes', testOptions, async (t) => {
   const { connect } = await fixture(t)
   const [host, author] = await Promise.all([connect(), connect()])
-  await join(host, 'question-room', '진행자')
+  const initial = await join(host, 'question-room', '진행자')
   await join(author, 'question-room', '처음 이름')
   let room = await mutate(author, 'question:add', { text: '  첫 아이디어를 함께 키울까요? \n' })
-  const questionId = room.questions[0].id
-  assert.equal(room.questions[0].text, '첫 아이디어를 함께 키울까요?')
-  assert.equal(room.questions[0].authorId, author.id)
-  assert.equal(room.questions[0].authorName, '처음 이름')
-  assert.equal(room.questions[0].isDemo, false)
-  assert.equal(room.questions[0].answered, false)
-  assert.deepEqual(room.questions[0].votes, [])
+  const created = room.questions.find((question) => !question.isDemo)
+  assert.ok(created)
+  const questionId = created.id
+  assert.equal(created.text, '첫 아이디어를 함께 키울까요?')
+  assert.equal(created.authorId, author.id)
+  assert.equal(created.authorName, '처음 이름')
+  assert.equal(created.isDemo, false)
+  assert.equal(created.answered, false)
+  assert.deepEqual(created.votes, [])
   room = await mutate(author, 'question:add', { text: '💡'.repeat(MAX_QUESTION_LENGTH) })
-  assert.equal(Array.from(room.questions[1].text).length, MAX_QUESTION_LENGTH)
+  const longQuestion = room.questions.find((question) => !question.isDemo && question.id !== questionId)
+  assert.ok(longQuestion)
+  assert.equal(Array.from(longQuestion.text).length, MAX_QUESTION_LENGTH)
   await bad(author, 'question:add', { text: '💡'.repeat(MAX_QUESTION_LENGTH + 1) })
   await bad(author, 'question:add', { text: ' \n\t ' })
 
   room = await mutate(author, 'room:profile', { name: '  유나  ', avatar: 'rose' })
   assert.equal(room.participants.find((participant) => participant.id === author.id)?.name, '유나')
-  assert.ok(room.questions.every((question) => question.authorName === '유나' && question.avatar === 'rose'))
+  assert.ok(room.questions.filter((question) => question.authorId === author.id).every((question) => question.authorName === '유나' && question.avatar === 'rose'))
   room = await mutate(host, 'question:vote', { questionId })
-  assert.deepEqual(room.questions[0].votes, [host.id])
+  assert.deepEqual(room.questions.find((question) => question.id === questionId)?.votes, [host.id])
   room = await mutate(host, 'question:vote', { questionId })
-  assert.deepEqual(room.questions[0].votes, [])
+  assert.deepEqual(room.questions.find((question) => question.id === questionId)?.votes, [])
   await mutate(host, 'question:vote', { questionId })
   room = await mutate(author, 'question:vote', { questionId })
-  assert.deepEqual(new Set(room.questions[0].votes), new Set([host.id, author.id]))
+  assert.deepEqual(new Set(room.questions.find((question) => question.id === questionId)?.votes), new Set([host.id, author.id]))
   await bad(host, 'question:vote', { questionId: 'does-not-exist' })
   await bad(host, 'question:answer', { questionId: 'does-not-exist' })
   const authorId = author.id
@@ -440,9 +461,10 @@ test('questions trim Unicode text, update author profiles, toggle unique votes, 
     nextEvent(host, 'room:state', (state) => !state.participants.some((participant) => participant.id === authorId)),
     good(author, 'room:leave'),
   ])
-  assert.deepEqual(remaining.questions[0].votes, [host.id])
-  assert.equal(remaining.questions[0].authorName, '유나')
-  assert.equal(remaining.questions.length, 2)
+  assert.deepEqual(remaining.questions.find((question) => question.id === questionId)?.votes, [host.id])
+  assert.equal(remaining.questions.find((question) => question.id === questionId)?.authorName, '유나')
+  assert.equal(remaining.questions.length, initial.questions.length + 2)
+  assert.deepEqual(remaining.questions.filter((question) => question.isDemo), initial.questions)
 })
 
 test('only the host controls answered status, title, and bounded slides without implicit screen stopping', testOptions, async (t) => {
@@ -450,7 +472,9 @@ test('only the host controls answered status, title, and bounded slides without 
   const [host, viewer] = await Promise.all([connect(), connect()])
   await join(host, 'presentation-room')
   await join(viewer, 'presentation-room')
-  const questionId = (await mutate(viewer, 'question:add', { text: '함께 어떤 실험을 해 볼까요?' })).questions[0].id
+  const question = (await mutate(viewer, 'question:add', { text: '함께 어떤 실험을 해 볼까요?' })).questions.find((entry) => !entry.isDemo)
+  assert.ok(question)
+  const questionId = question.id
   for (const [event, payload] of [
     ['question:answer', { questionId }],
     ['room:title', { title: '권한 없는 변경' }],
@@ -460,8 +484,8 @@ test('only the host controls answered status, title, and bounded slides without 
     assert.match(await bad(viewer, event, payload), /진행자/)
   }
 
-  assert.equal((await mutate(host, 'question:answer', { questionId })).questions[0].answered, true)
-  assert.equal((await mutate(host, 'question:answer', { questionId })).questions[0].answered, false)
+  assert.equal((await mutate(host, 'question:answer', { questionId })).questions.find((entry) => entry.id === questionId)?.answered, true)
+  assert.equal((await mutate(host, 'question:answer', { questionId })).questions.find((entry) => entry.id === questionId)?.answered, false)
   assert.equal((await mutate(host, 'room:title', { title: '  함께 만드는 아이디어  ' })).title, '함께 만드는 아이디어')
   assert.equal((await mutate(host, 'room:title', { title: `  ${'💡'.repeat(60)}  ` })).title, '💡'.repeat(60))
   await bad(host, 'room:title', { title: '💡'.repeat(61) })
@@ -561,12 +585,14 @@ test(`RTC relays validated host-viewer descriptions and ICE only during same-roo
 })
 }
 
-test('host leave and disconnect transfer ownership to the earliest real attendee and end screen sharing', testOptions, async (t) => {
+for (const demo of [false, true]) {
+test(`host leave and disconnect ignore samples and transfer ownership to the earliest real attendee in ${demo ? 'demo' : 'real'} rooms`, testOptions, async (t) => {
   const { connect } = await fixture(t)
   const [host, first, second] = await Promise.all([connect(), connect(), connect()])
-  await join(host, 'transfer-room', '원래 진행자', true)
-  await join(first, 'transfer-room', '첫 참가자', true)
-  await join(second, 'transfer-room', '둘째 참가자', true)
+  const initial = await join(host, 'transfer-room', '원래 진행자', demo)
+  const samples = initial.participants.filter((participant) => participant.isDemo)
+  await join(first, 'transfer-room', '첫 참가자', demo)
+  await join(second, 'transfer-room', '둘째 참가자', demo)
   await mutate(host, 'presentation:set', { source: 'teams', slide: 2 })
   const hostId = host.id
   const [transferred] = await Promise.all([
@@ -575,6 +601,8 @@ test('host leave and disconnect transfer ownership to the earliest real attendee
   ])
   assert.equal(transferred.participants.some((participant) => participant.id === hostId), false)
   assert.equal(transferred.participants.find((participant) => participant.id === first.id)?.seat, null)
+  assert.equal(transferred.participants.find((participant) => participant.id === transferred.hostId)?.isDemo, false)
+  assert.deepEqual(transferred.participants.filter((participant) => participant.isDemo), samples)
   assert.deepEqual(transferred.presentation, { source: 'slides', slide: 2, presenterId: first.id })
   await bad(host, 'presentation:set', { source: 'screen' })
   await bad(second, 'room:title', { title: '아직 진행자가 아니에요' })
@@ -586,30 +614,67 @@ test('host leave and disconnect transfer ownership to the earliest real attendee
   const afterDisconnect = await transfer
   assert.equal(afterDisconnect.participants.some((participant) => participant.id === firstId), false)
   assert.equal(afterDisconnect.participants.find((participant) => participant.id === second.id)?.isDemo, false)
+  assert.deepEqual(afterDisconnect.participants.filter((participant) => participant.isDemo), samples)
   assert.deepEqual(afterDisconnect.presentation, { source: 'slides', slide: 2, presenterId: second.id })
   assert.equal(afterDisconnect.title, '이어지는 만남')
 })
+}
 
-test('demo seeds are explicit and bounded, status cannot change, and the last real departure deletes bots too', testOptions, async (t) => {
+for (const demo of [false, true]) {
+test(`${demo ? 'demo' : 'real'} rooms seed eight sample attendees and three questions exactly once, and closing then recreating reseeds new IDs`, testOptions, async (t) => {
   const { connect } = await fixture(t)
   const [host, viewer, replacement] = await Promise.all([connect(), connect(), connect()])
-  const demo = await join(host, 'demo-room', '실제 진행자', true)
-  assert.equal(demo.hostId, host.id)
-  const bots = demo.participants.filter((participant) => participant.isDemo)
-  assert.equal(bots.length, 10)
+  const initial = await join(host, 'seed-room', '실제 진행자', demo)
+  assert.equal(initial.isDemo, demo)
+  assert.equal(initial.hostId, host.id)
+  assert.equal(initial.presentation.presenterId, host.id)
+  assert.equal(initial.participants.find((participant) => participant.id === initial.hostId)?.isDemo, false)
+  assert.equal(initial.participants.filter((participant) => !participant.isDemo).length, 1)
+  const bots = initial.participants.filter((participant) => participant.isDemo)
+  assert.equal(bots.length, 8)
+  assert.equal(initial.participants.length, bots.length + 1)
+  assert.equal(new Set(bots.map((participant) => participant.name)).size, bots.length)
   assert.equal(new Set(bots.map((participant) => participant.avatar)).size, AVATARS.length)
-  assert.deepEqual(bots.map((participant) => participant.seat), Array.from({ length: 10 }, (_, index) => index))
-  assert.equal(demo.questions.length, 3)
-  for (const question of demo.questions) {
+  assert.deepEqual(bots.map((participant) => participant.seat), Array.from({ length: bots.length }, (_, index) => index))
+  assert.ok(initial.participants.every((participant) => participant.seat !== 18))
+  assert.equal(initial.questions.length, 3)
+  for (const question of initial.questions) {
     assert.equal(question.isDemo, true)
     assert.match(question.text, /[가-힣]/)
-    assert.ok(bots.some((bot) => bot.id === question.authorId))
+    const author = bots.find((bot) => bot.id === question.authorId)
+    assert.ok(author)
+    assert.equal(question.authorName, author.name)
+    assert.equal(question.avatar, author.avatar)
     assert.ok(question.votes.length >= 3 && question.votes.length <= 5)
     assert.ok(question.votes.every((id) => typeof id === 'string' && bots.some((bot) => bot.id === id)))
   }
-  assert.match(await bad(viewer, 'room:join', { roomId: 'demo-room', name: '실제 참가자', avatar: 'sky', demo: false, role: 'attendee' }), /데모/)
-  await bad(host, 'room:join', { roomId: 'demo-room', name: '진행자', avatar: 'mint', demo: false, role: 'host' })
-  assert.equal((await join(viewer, 'demo-room', '실제 참가자', true)).participants.find((participant) => participant.id === viewer.id)?.seat, 10)
+  assert.match(await bad(viewer, 'room:join', { roomId: initial.id, name: '실제 참가자', avatar: 'sky', demo: !demo, role: 'attendee' }), /데모/)
+  await bad(host, 'room:join', { roomId: initial.id, name: '진행자', avatar: 'mint', demo: !demo, role: 'host' })
+  const rejoinedHost = await join(host, initial.id, '실제 진행자', demo)
+  assert.equal(rejoinedHost.participants.filter((participant) => !participant.isDemo).length, 1)
+  const attendeePayload = { roomId: initial.id, name: '실제 참가자', avatar: 'sky', demo, role: 'attendee' }
+  const entered = await good<RoomJoinResult>(viewer, 'room:join', attendeePayload)
+  assert.equal(entered.role, 'attendee')
+  assert.equal(entered.participants.find((participant) => participant.id === viewer.id)?.seat, bots.length)
+  const idempotentAttendee = await good<RoomJoinResult>(viewer, 'room:join', attendeePayload)
+  assert.equal(idempotentAttendee.accessToken, entered.accessToken)
+  await good(viewer, 'room:leave')
+  const reentered = await good<RoomJoinResult>(viewer, 'room:join', attendeePayload)
+  for (const room of [rejoinedHost, entered, idempotentAttendee, reentered]) {
+    assert.equal(room.isDemo, demo)
+    assert.equal(room.hostId, host.id)
+    assert.deepEqual(room.participants.filter((participant) => participant.isDemo), bots)
+    assert.deepEqual(room.questions, initial.questions)
+  }
+  for (const room of [entered, idempotentAttendee, reentered]) {
+    assert.equal(room.participants.length, bots.length + 2)
+    assert.equal(room.participants.filter((participant) => !participant.isDemo).length, 2)
+  }
+
+  const posted = await mutate(viewer, 'question:add', { text: '이 질문은 이 만남에만 남아야 해요.' })
+  const liveQuestion = posted.questions.find((question) => !question.isDemo)
+  assert.ok(liveQuestion)
+  assert.deepEqual((await join(host, initial.id, '실제 진행자', demo)).questions, posted.questions)
   await mutate(host, 'presentation:set', { source: 'screen' })
   await bad(host, 'rtc:signal', { to: bots[0].id, candidate: { candidate: '' } })
 
@@ -619,49 +684,70 @@ test('demo seeds are explicit and bounded, status cannot change, and the last re
     good(viewer, 'room:leave'),
   ])
   assert.equal(withoutViewer.presentation.source, 'screen')
+  assert.deepEqual(withoutViewer.participants.filter((participant) => participant.isDemo), bots)
+  assert.equal(withoutViewer.participants.filter((participant) => !participant.isDemo).length, 1)
   await good(host, 'room:leave')
-  const fresh = await join(replacement, 'demo-room', '새로운 진행자')
-  assert.equal(fresh.isDemo, false)
+  assert.match(await bad(replacement, 'room:join', attendeePayload), /열리지|종료/)
+  const fresh = await join(replacement, initial.id, '새로운 진행자', !demo)
+  assert.equal(fresh.isDemo, !demo)
   assert.equal(fresh.hostId, replacement.id)
-  assert.equal(fresh.participants.length, 1)
-  assert.deepEqual(fresh.questions, [])
+  assert.equal(fresh.participants.find((participant) => participant.id === fresh.hostId)?.isDemo, false)
+  assert.equal(fresh.participants.filter((participant) => !participant.isDemo).length, 1)
+  assert.equal(fresh.participants.filter((participant) => participant.isDemo).length, bots.length)
+  assert.equal(fresh.participants.length, bots.length + 1)
+  assert.ok(fresh.participants.every((participant) => !initial.participants.some((entry) => entry.id === participant.id)))
+  assert.equal(fresh.questions.length, initial.questions.length)
+  assert.ok(fresh.questions.every((question) => question.isDemo && !posted.questions.some((entry) => entry.id === question.id)))
+  assert.ok(fresh.questions.every((question) => fresh.participants.some((participant) => participant.isDemo && participant.id === question.authorId)))
 })
+}
 
-test('combined demo and live capacity never exceeds 25 and a failed full-room join preserves old membership', testOptions, async (t) => {
+for (const demo of [false, true]) {
+test(`combined sample and live capacity never exceeds 25 in ${demo ? 'demo' : 'real'} rooms, and a failed join preserves old membership`, testOptions, async (t) => {
   const { connect } = await fixture(t)
   const host = await connect()
-  await join(host, 'capacity-room', '진행자', true)
-  const viewers = await Promise.all(Array.from({ length: 14 }, () => connect()))
+  const initial = await join(host, 'capacity-room', '진행자', demo)
+  const samples = initial.participants.filter((participant) => participant.isDemo)
+  const viewers = await Promise.all(Array.from({ length: SEAT_COUNT - samples.length }, () => connect()))
   for (const [index, viewer] of viewers.entries()) {
-    const room = await join(viewer, 'capacity-room', `참가자${index}`, true)
-    assert.equal(room.participants.find((participant) => participant.id === viewer.id)?.seat, index + 10)
+    const room = await join(viewer, 'capacity-room', `참가자${index}`, demo)
+    assert.equal(room.participants.find((participant) => participant.id === viewer.id)?.seat, index + samples.length)
   }
-  const full = latest(viewers[13])
+  const full = latest(viewers[viewers.length - 1])
   assert.equal(full.participants.length, SEAT_COUNT + 1)
+  assert.equal(full.participants.filter((participant) => !participant.isDemo).length, 17)
+  assert.deepEqual(full.participants.filter((participant) => participant.isDemo), samples)
   assert.equal(new Set(full.participants.filter((participant) => participant.seat !== null).map((participant) => participant.seat)).size, SEAT_COUNT)
   const outsider = await connect()
   await join(outsider, 'capacity-outside')
-  assert.match(await bad(outsider, 'room:join', { roomId: 'capacity-room', name: '늦은 참가자', avatar: 'mint', demo: true, role: 'attendee' }), /가득/)
+  assert.match(await bad(outsider, 'room:join', { roomId: 'capacity-room', name: '늦은 참가자', avatar: 'mint', demo, role: 'attendee' }), /가득/)
   assert.equal((await mutate(outsider, 'room:title', { title: '원래 방에 남아 있어요' })).id, 'capacity-outside')
   await good(viewers[4], 'room:leave')
-  const admitted = await join(outsider, 'capacity-room', '늦은 참가자', true)
+  const admitted = await join(outsider, 'capacity-room', '늦은 참가자', demo)
   assert.equal(admitted.participants.length, SEAT_COUNT + 1)
-  assert.equal(admitted.participants.find((participant) => participant.id === outsider.id)?.seat, 14)
+  assert.deepEqual(admitted.participants.filter((participant) => participant.isDemo), samples)
+  assert.equal(admitted.participants.find((participant) => participant.id === outsider.id)?.seat, samples.length + 4)
   await bad(outsider, 'room:title', { title: '다른 방의 권한을 가져올 수 없어요' })
 })
+}
 
 test('the question cap is explicit at 100 without evicting questions or treating answers as deletions', testOptions, async (t) => {
   const { connect } = await fixture(t)
   const writers = await Promise.all(Array.from({ length: 10 }, () => connect()))
   for (const [index, writer] of writers.entries()) await join(writer, 'question-cap', `작성자${index}`)
-  for (let question = 0; question < 10; question += 1) {
-    await Promise.all(writers.map((writer, index) => good(writer, 'question:add', { text: `협업 아이디어 ${index}-${question}` })))
+  const samples = latest(writers[0]).questions
+  const remainingCapacity = 100 - samples.length
+  for (let start = 0; start < remainingCapacity; start += writers.length) {
+    await Promise.all(writers.slice(0, remainingCapacity - start).map((writer, index) => good(writer, 'question:add', { text: `협업 아이디어 ${start + index}` })))
   }
   let room = await mutate(writers[0], 'room:hand', { raised: false })
   assert.equal(room.questions.length, 100)
   assert.equal(new Set(room.questions.map((question) => question.id)).size, 100)
+  assert.deepEqual(room.questions.filter((question) => question.isDemo), samples)
   assert.match(await bad(writers[0], 'question:add', { text: '101번째 질문' }), /100/)
-  room = await mutate(writers[0], 'question:answer', { questionId: room.questions[0].id })
+  const liveQuestion = room.questions.find((question) => !question.isDemo)
+  assert.ok(liveQuestion)
+  room = await mutate(writers[0], 'question:answer', { questionId: liveQuestion.id })
   assert.equal(room.questions.length, 100)
   assert.match(await bad(writers[0], 'question:add', { text: '답변 이후에도 질문은 남아요' }), /100/)
 })
@@ -671,8 +757,10 @@ test('room switches release old membership and host privileges without cross-roo
   const [mover, remaining, destinationHost] = await Promise.all([connect(), connect(), connect()])
   await join(mover, 'switch-old', '원래 이름')
   await join(remaining, 'switch-old')
-  await join(destinationHost, 'switch-new')
-  const questionId = (await mutate(mover, 'question:add', { text: '이 질문은 원래 방에 남아요.' })).questions[0].id
+  const destination = await join(destinationHost, 'switch-new')
+  const question = (await mutate(mover, 'question:add', { text: '이 질문은 원래 방에 남아요.' })).questions.find((entry) => !entry.isDemo)
+  assert.ok(question)
+  const questionId = question.id
   await mutate(mover, 'question:vote', { questionId })
   await mutate(mover, 'presentation:set', { source: 'screen' })
   const [oldRoom, newRoom] = await Promise.all([
@@ -680,14 +768,14 @@ test('room switches release old membership and host privileges without cross-roo
     join(mover, 'switch-new', '새 방 이름'),
   ])
   assert.equal(oldRoom.participants.some((participant) => participant.id === mover.id), false)
-  assert.deepEqual(oldRoom.questions[0].votes, [])
+  assert.deepEqual(oldRoom.questions.find((entry) => entry.id === questionId)?.votes, [])
   assert.equal(oldRoom.presentation.source, 'slides')
   assert.equal(newRoom.hostId, destinationHost.id)
-  assert.equal(newRoom.participants.find((participant) => participant.id === mover.id)?.seat, 0)
+  assert.equal(newRoom.participants.find((participant) => participant.id === mover.id)?.seat, destination.participants.filter((participant) => participant.isDemo).length)
   await bad(mover, 'room:title', { title: '옛 진행자 권한은 사라져요' })
   await bad(mover, 'question:vote', { questionId })
   await mutate(mover, 'room:profile', { name: '새로운 프로필', avatar: 'peach' })
-  assert.equal((await mutate(remaining, 'room:hand', { raised: false })).questions[0].authorName, '원래 이름')
+  assert.equal((await mutate(remaining, 'room:hand', { raised: false })).questions.find((entry) => entry.id === questionId)?.authorName, '원래 이름')
   let leakedStates = 0
   mover.on('room:state', (room) => { if (room.id === 'switch-old') leakedStates += 1 })
   await mutate(remaining, 'room:title', { title: '옛 방의 새 진행자' })

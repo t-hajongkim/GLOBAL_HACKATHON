@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { ArrowRight, Crown, FileText, LoaderCircle, Sparkles, UploadCloud, Users, X } from 'lucide-react'
-import { PixelAvatar, PixelLogo, PixelSprout } from './PixelArt.tsx'
+import { PixelLogo } from './PixelArt.tsx'
 import { DEFAULT_ROOM_TITLE, MATERIAL_MIME_TYPES, type JoinRole } from '../shared/protocol.ts'
 import { formatFileSize, validateMaterialFiles } from '../lib/materials.ts'
 import type { Profile } from '../hooks/useRoom.ts'
@@ -69,7 +69,11 @@ export function JoinScreen({
           <span className="join-eyebrow">A ROOM FOR EVERY IDEA</span>
           <h1>오늘의 만남,<br />어떤 역할로<br /><em>시작할까요?</em></h1>
           <p>이야기를 준비하는 Host,<br />함께 반응하고 질문하는 Attendee.<br />서로 다른 자리에서 같은 이야기를 만나요.</p>
-          <div className="join-pixel-scene" aria-hidden="true"><span className="join-pixel-screen">LET'S GROW<br />TOGETHER <i>✦</i></span><PixelAvatar color="mint" size={64} /><PixelSprout /><PixelAvatar color="lilac" size={64} /></div>
+          <div className="join-mascot">
+            <img src="/team-logo.png" width={300} height={300}
+              alt="민트 모자를 쓰고 박수치는 모여극장 캐릭터" fetchPriority="high" />
+            <span>작은 반응이 만드는<br /><strong>함께하는 순간 ✦</strong></span>
+          </div>
           <div className="join-agent-note"><Sparkles size={18} /><span>업로드한 자료는 방에 연결돼요.<br /><strong>추후 AI 에이전트가 연결될 준비 공간입니다.</strong></span></div>
         </section>
         <section className="join-card" aria-label="미팅룸 입장">
